@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 
-# Set ephemeris path
+# Set ephemeris path (folder with .se1, .se2 etc. files)
 swe.set_ephe_path("ephe")
 
 DATA_PATH = "data"
@@ -45,15 +45,15 @@ def generate_ephemeris(year):
             rows.append({
                 "DateTime": dt.strftime("%Y-%m-%d %H:%M"),
                 "Symbol": sym,
-                "Trend": "🟢 Bullish",  # Placeholder for now
-                "Events": ""  # Placeholder for now
+                "Trend": "🟢 Bullish",  # Placeholder trend
+                "Events": ""  # Placeholder events
             })
         dt += timedelta(hours=1)
     pd.DataFrame(rows).to_csv(f"{DATA_PATH}/ephemeris_{year}.csv", index=False)
     pd.DataFrame([{"Symbol": s, "Year": year, "MainTrend": "🟢 Bullish"} for s in WATCHLIST]) \
         .to_csv(f"{DATA_PATH}/summary_{year}.csv", index=False)
 
-for y in range(2025, 2030 + 1):
+for y in range(2025, 2031):
     print(f"Generating {y}...")
     generate_ephemeris(y)
 
