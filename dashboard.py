@@ -139,9 +139,18 @@ with tab3:
             next_event = sym_df.iloc[0]
             upcoming_rows.append({
                 "Symbol": sym,
-                "NextEvent": next_event["AstroEvent"],
-                "Trend": next_event["Impact"],
-                "Time": next_event["DateTime"]
+                "NextEvent": next_event.get("AstroEvent", ""),
+                "Trend": next_event.get("Impact", ""),
+                "Impact": next_event.get("Impact", ""),
+                "Time": next_event.get("DateTime", "")
             })
+
     upcoming_df = pd.DataFrame(upcoming_rows)
-    st.dataframe(upcoming_df.style.apply(color_rows, axis=1), use_container_width=True)
+
+    if not upcoming_df.empty:
+        if "Impact" in upcoming_df.columns:
+            st.dataframe(upcoming_df.style.apply(color_rows, axis=1), use_container_width=True)
+        else:
+            st.dataframe(upcoming_df, use_container_width=True)
+    else:
+        st.info("No upcoming events found for the selected date.")
