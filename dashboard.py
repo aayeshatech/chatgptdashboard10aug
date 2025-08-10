@@ -1,5 +1,75 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime, time
+import random
+
+# ===== Mock Astro Data (Replace with real logic) =====
+def generate_mock_astro_data(date, symbols):
+    rows = []
+    for sym in symbols:
+        for hour in range(9, 16):
+            trend = random.choice(["Bullish", "Bearish", "Neutral"])
+            astro_event = random.choice([
+                "Moon Conjunct Jupiter", "Sun Trine Saturn",
+                "Venus Opposite Mars", "Mercury Sextile Venus",
+                "Mars Square Neptune"
+            ])
+            rows.append({
+                "DateTime": f"{date} {hour:02d}:00",
+                "Symbol": sym,
+                "AstroEvent": astro_event,
+                "Impact": trend
+            })
+    return pd.DataFrame(rows)
+
+# ===== Dashboard Layout =====
+st.set_page_config(page_title="Astro Market Dashboard", layout="wide")
+st.title("🔮 Astro Market Dashboard")
+
+# Tabs
+tab1, tab2, tab3 = st.tabs(["Today Market", "Screener", "Upcoming Transit"])
+
+# ===== TODAY MARKET TAB =====
+with tab1:
+    st.header("📅 Today Market Analysis")
+
+    # Filters
+    years = list(range(2025, 2031))
+    months_dict = {1: "January", 2: "February", 3: "March", 4: "April",
+                   5: "May", 6: "June", 7: "July", 8: "August",
+                   9: "September", 10: "October", 11: "November", 12: "December"}
+    selected_year = st.selectbox("Select Year", years)
+    selected_month = st.selectbox("Select Month", list(months_dict.values()))
+    month_num = list(months_dict.keys())[list(months_dict.values()).index(selected_month)]
+    selected_day = st.number_input("Select Date", min_value=1, max_value=31, value=datetime.now().day)
+    selected_date = f"{selected_year}-{month_num:02d}-{selected_day:02d}"
+
+    start_time = st.time_input("Start Time", value=time(9, 0))
+    end_time = st.time_input("End Time", value=time(15, 30))
+
+    # Watchlist selection
+    symbols_list = ["NIFTY", "BANKNIFTY", "RELIANCE", "TCS"]  # Replace with real watchlist
+    df = generate_mock_astro_data(selected_date, symbols_list)
+
+    # Filter by time range
+    df["TimeOnly"] = pd.to_datetime(df["DateTime"]).dt.time
+    df = df[(df["TimeOnly"] >= start_time) & (df["TimeOnly"] <= end_time)]
+
+    # Split into bullish/bearish tabs
+    bull_df = df[df["Impact"] == "Bullish"]
+    bear_df = df[df["Impact"] == "Bearish"]
+
+    subtab1, subtab2 = st.tabs(["📈 Bullish", "📉 Bearish"])
+
+    with subtab1:
+        st.subheader("Bullish Events")
+        st.dataframe(bull_df.style.apply(lambda row: ["background-color: lightblue"]*len(row), axis=1), use_container_width=True)
+
+    with subtab2:
+        st.subheader("Bearish Events")
+        st.dataframe(bear_df.style.apply(lambda row: ["background-color: lightcoral"]*len(row), axis=1), use_container_width=True)
+import streamlit as st
+import pandas as pd
 from datetime import datetime
 import random
 
