@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import emoji
 
 # --------------------
 # Page Config
@@ -43,11 +42,11 @@ st.markdown("""
 # --------------------
 def load_mock_data():
     data = [
-        ["NIFTY", "Bullish", 85, "09:15", "Saturn – Structure", "Mars Energy Peak", "2h"],
-        ["BANKNIFTY", "Bearish", 70, "09:15", "Venus – Value", "Venus Retrograde", "3h"],
-        ["RELIANCE", "Bullish", 78, "10:30", "Jupiter – Expansion", "Moon Conj Jupiter", "1h"],
-        ["INFY", "Bearish", 65, "10:30", "Mercury – Communication", "Mercury Square Saturn", "5h"],
-        ["TCS", "Bullish", 90, "12:00", "Sun – Vitality", "Sun Sextile Venus", "4h"]
+        ["NIFTY", "Bullish", 85, "09:15", "♄ Saturn – Structure", "Mars Energy Peak", "2h"],
+        ["BANKNIFTY", "Bearish", 70, "09:15", "♀ Venus – Value", "Venus Retrograde", "3h"],
+        ["RELIANCE", "Bullish", 78, "10:30", "♃ Jupiter – Expansion", "Moon Conj Jupiter", "1h"],
+        ["INFY", "Bearish", 65, "10:30", "☿ Mercury – Communication", "Mercury Square Saturn", "5h"],
+        ["TCS", "Bullish", 90, "12:00", "☉ Sun – Vitality", "Sun Sextile Venus", "4h"]
     ]
     return pd.DataFrame(data, columns=["Symbol", "Impact", "Strength", "Best Time", "Planetary Support", "Transit", "Next Change"])
 
@@ -69,10 +68,11 @@ def display_cards(df, sentiment):
         for idx, row in group.reset_index(drop=True).iterrows():
             with cols[idx % 3]:
                 color_class = "bullish" if sentiment == "Bullish" else "bearish"
+                icon = "📈" if sentiment == "Bullish" else "📉"
                 st.markdown(f"""
                     <div class="card {color_class}">
                         <div class="symbol">{row['Symbol']}</div>
-                        <div class="detail"><b>Sentiment:</b> {emoji.emojize(':chart_increasing:') if sentiment == 'Bullish' else emoji.emojize(':chart_decreasing:')} {sentiment}</div>
+                        <div class="detail"><b>Sentiment:</b> {icon} {sentiment}</div>
                         <div class="detail"><b>Strength:</b> {row['Strength']}%</div>
                         <div class="detail"><b>Planetary Support:</b> {row['Planetary Support']}</div>
                         <div class="detail"><b>Transit:</b> {row['Transit']}</div>
