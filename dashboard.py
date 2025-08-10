@@ -2,33 +2,28 @@ import pandas as pd
 import os
 from datetime import datetime, timedelta
 
-# =======================
-# CONFIG
-# =======================
 DATA_PATH = "data"
 os.makedirs(DATA_PATH, exist_ok=True)
 
 WATCHLIST = ["TATASTEEL", "RELIANCE", "INFY", "HDFCBANK"]
 
-# Base planetary positions on 10 Aug 2024 (sidereal, decimal degrees)
 BASE_POSITIONS = {
-    "Sun": 113.8333,       # Cancer 23°50’
-    "Moon": 176.8667,      # Virgo 26°52’
-    "Mercury": 128.8000,   # Leo 8°48’ (R)
-    "Venus": 132.0333,     # Leo 12°02’
-    "Mars": 49.5500,       # Taurus 19°33’
-    "Jupiter": 51.7667,    # Taurus 21°46’
-    "Saturn": 323.8833,    # Aquarius 23°53’ (R)
-    "Uranus": 32.8333,     # Taurus 2°50’
-    "Neptune": 335.3333,   # Pisces 5°20’ (R)
-    "Pluto": 276.2500,     # Capricorn 6°15’ (R)
-    "Rahu": 344.9000,      # Pisces 14°54’ (M)
-    "TrueNode": 343.4500,  # Pisces 13°27’ (T)
-    "Lilith": 160.4167,    # Virgo 10°25’
-    "Chiron": 359.2333     # Pisces 29°14’
+    "Sun": 113.8333,
+    "Moon": 176.8667,
+    "Mercury": 128.8000,
+    "Venus": 132.0333,
+    "Mars": 49.5500,
+    "Jupiter": 51.7667,
+    "Saturn": 323.8833,
+    "Uranus": 32.8333,
+    "Neptune": 335.3333,
+    "Pluto": 276.2500,
+    "Rahu": 344.9000,
+    "TrueNode": 343.4500,
+    "Lilith": 160.4167,
+    "Chiron": 359.2333
 }
 
-# Average sidereal motion in degrees/hour
 MOTION_SPEEDS = {
     "Sun": 0.04107,
     "Moon": 0.54902,
@@ -40,13 +35,12 @@ MOTION_SPEEDS = {
     "Uranus": 0.00050,
     "Neptune": 0.00025,
     "Pluto": 0.000166,
-    "Rahu": -0.00417,      # Retrograde
+    "Rahu": -0.00417,
     "TrueNode": -0.00417,
     "Lilith": 0.0,
     "Chiron": 0.0
 }
 
-# Nakshatra details
 NAKSHATRAS = [
     "Ashwini", "Bharani", "Krittika", "Rohini", "Mrigashira", "Ardra",
     "Punarvasu", "Pushya", "Ashlesha", "Magha", "Purva Phalguni", "Uttara Phalguni",
@@ -61,15 +55,14 @@ def get_rashi(deg):
     return signs[int(deg // 30)]
 
 def get_nakshatra(deg):
-    segment = 13 + 1/3  # 13°20′
+    segment = 13 + 1/3
     index = int(deg // segment) % 27
     pada = int((deg % segment) // (segment / 4)) + 1
     return NAKSHATRAS[index], pada
 
-def calculate_trend(planet_positions):
-    # Simple rule: Jupiter + Moon in benefic rashis => bullish
-    moon_rashi = get_rashi(planet_positions["Moon"])
-    jup_rashi = get_rashi(planet_positions["Jupiter"])
+def calculate_trend(positions):
+    moon_rashi = get_rashi(positions["Moon"])
+    jup_rashi = get_rashi(positions["Jupiter"])
     benefics = {"Taurus", "Cancer", "Sagittarius", "Pisces"}
     if moon_rashi in benefics and jup_rashi in benefics:
         return "🟢 Bullish"
@@ -77,12 +70,11 @@ def calculate_trend(planet_positions):
         return "🔴 Bearish"
     return "⚪ Neutral"
 
-# =======================
-# GENERATE FUNCTION
-# =======================
-def generate_ephemeris(year):
+def generate_ephemeris(year, hourly=False):
     start_dt = datetime(2024, 8, 10, 0, 0)
     end_dt = datetime(year, 12, 31, 23, 0)
+
+    step = timedelta(hours=1) if hourly else timedelta(days=1)
     positions = BASE_POSITIONS.copy()
     rows = []
 
@@ -98,25 +90,31 @@ def generate_ephemeris(year):
                 "Events": ", ".join(f"{p}:{get_rashi(pos)}-{nakshatra_info[p][0]}P{nakshatra_info[p][1]}"
                                     for p, pos in positions.items())
             })
-        # Increment positions
         for planet, speed in MOTION_SPEEDS.items():
-            positions[planet] = (positions[planet] + speed) % 360
-        dt += timedelta(hours=1)
+            positions[planet] = (positions[planet] + speed * (1 if hourly else 24)) % 360
+        dt += step
 
     df = pd.DataFrame(rows)
     df_year = df[df["DateTime"].str.startswith(str(year))]
-    df_year.to_csv(f"{DATA_PATH}/ephemeris_{year}.csv", index=False)
+    if hourly:
+        df_year.to_csv(f"{DATA_PATH}/ephemeris_hourly_{year}.csv", index=False)
+    else:
+        df_year.to_csv(f"{DATA_PATH}/ephemeris_daily_{year}.csv", index=False)
 
-    # Daily summary
-    df_daily = df_year.groupby(["Symbol"]).agg({"Trend": lambda x: x.mode()[0] if not x.mode().empty else "⚪ Neutral"}).reset_index()
-    df_daily["Year"] = year
-    df_daily.to_csv(f"{DATA_PATH}/summary_{year}.csv", index=False)
+    summary = df_year.groupby(["Symbol"]).agg({"Trend": lambda x: x.mode()[0]}).reset_index()
+    summary["Year"] = year
+    if hourly:
+        summary.to_csv(f"{DATA_PATH}/summary_hourly_{year}.csv", index=False)
+    else:
+        summary.to_csv(f"{DATA_PATH}/summary_daily_{year}.csv", index=False)
 
-# =======================
-# RUN FOR ALL YEARS
-# =======================
+# Run optimized generation
 for y in range(2024, 2033):
-    print(f"Generating {y}...")
-    generate_ephemeris(y)
+    print(f"Generating daily data for {y}...")
+    generate_ephemeris(y, hourly=False)
 
-print("✅ All CSV files generated in 'data/' folder (2024–2032).")
+current_year = datetime.now().year
+print(f"Generating hourly data for {current_year}...")
+generate_ephemeris(current_year, hourly=True)
+
+print("✅ All CSV files generated in 'data/' folder (daily for all years, hourly for current year).")
