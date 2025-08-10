@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 
-# Set ephemeris path (folder with .se1, .se2 etc. files)
+# Set ephemeris path (local folder with .se1, .se2 files)
 swe.set_ephe_path("ephe")
 
 DATA_PATH = "data"
