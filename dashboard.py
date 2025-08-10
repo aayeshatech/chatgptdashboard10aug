@@ -6,30 +6,23 @@ import random
 # ===========================
 # Safe Watchlist Loader
 # ===========================
-def load_watchlist(file_path):
+def read_symbols_from_file(uploaded_file):
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read().strip()
-            if not content:
-                return []
-            if "," in content:
-                symbols = [s.strip() for s in content.split(",")]
-            elif "\t" in content:
-                symbols = [s.strip() for s in content.split("\t")]
-            else:
-                symbols = [line.strip() for line in content.split("\n")]
-            return [s for s in symbols if s]
+        content = uploaded_file.read().decode("utf-8").strip()
+        if not content:
+            return []
+        if "," in content:
+            symbols = [s.strip() for s in content.split(",")]
+        elif "\t" in content:
+            symbols = [s.strip() for s in content.split("\t")]
+        else:
+            symbols = [line.strip() for line in content.split("\n")]
+        return [s for s in symbols if s]
     except:
         return []
 
-watchlists = {
-    "EYE FUTURE WATCHLIST": load_watchlist("/mnt/data/Eye_d16ec.txt"),
-    "WATCHLIST (2)": load_watchlist("/mnt/data/Watchlist (2)_8e9c8.txt"),
-    "FUTURE": load_watchlist("/mnt/data/FUTURE_e8298.txt")
-}
-
 # ===========================
-# Mock Astro Data Generator (Replace with real astro logic)
+# Mock Astro Data Generator
 # ===========================
 def generate_mock_astro_data(date, symbols):
     rows = []
@@ -52,10 +45,25 @@ def generate_mock_astro_data(date, symbols):
     return pd.DataFrame(rows)
 
 # ===========================
-# Streamlit App
+# Streamlit UI
 # ===========================
 st.set_page_config(page_title="Astro Market Dashboard", layout="wide")
 st.title("🔮 Astro Market Dashboard")
+
+# Upload Watchlists
+st.sidebar.header("📂 Upload Watchlists")
+wl1 = st.sidebar.file_uploader("Upload Watchlist 1", type=["txt", "csv"])
+wl2 = st.sidebar.file_uploader("Upload Watchlist 2", type=["txt", "csv"])
+wl3 = st.sidebar.file_uploader("Upload Watchlist 3", type=["txt", "csv"])
+
+watchlists = {}
+if wl1: watchlists["Watchlist 1"] = read_symbols_from_file(wl1)
+if wl2: watchlists["Watchlist 2"] = read_symbols_from_file(wl2)
+if wl3: watchlists["Watchlist 3"] = read_symbols_from_file(wl3)
+
+if not watchlists:
+    st.warning("Please upload at least one watchlist to continue.")
+    st.stop()
 
 # Month & Date selection
 months_dict = {
