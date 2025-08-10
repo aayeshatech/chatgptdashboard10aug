@@ -1,105 +1,87 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-from datetime import datetime, time
+from datetime import datetime
+import random
 
-# ===============================
-# Load Watchlists from Uploaded Files
-# ===============================
+# ======== MOCK Astro Data Generator (Replace with your real astro logic) ========
+def generate_mock_astro_data(date: str, symbols: list):
+    rows = []
+    for sym in symbols:
+        for hour in range(0, 24):
+            trend = random.choice(["Bullish", "Bearish", "Neutral"])
+            astro_event = random.choice([
+                "Moon Conjunct Jupiter", "Sun Trine Saturn", "Venus Opposite Mars",
+                "Mercury Sextile Venus", "Mars Square Neptune"
+            ])
+            remark = "Bullish" if trend == "Bullish" else "Bearish" if trend == "Bearish" else "Neutral"
+            rows.append({
+                "DateTime": f"{date} {hour:02d}:00",
+                "Symbol": sym,
+                "Trend": trend,
+                "AstroEvent": astro_event,
+                "Remark": remark
+            })
+    return pd.DataFrame(rows)
+
+# ======== Load Watchlists ========
 def load_watchlist(file_path):
     try:
-        with open(file_path, 'r') as f:
-            symbols = [line.strip() for line in f if line.strip()]
-        return symbols
+        with open(file_path, "r") as f:
+            return [line.strip() for line in f if line.strip()]
     except:
         return []
 
 watchlists = {
-    "EYE FUTURE WATCHLIST": load_watchlist("Eye_d16ec.txt"),
-    "WATCHLIST (2)": load_watchlist("Watchlist (2)_8e9c8.txt"),
-    "FUTURE": load_watchlist("FUTURE_e8298.txt")
+    "EYE FUTURE WATCHLIST": load_watchlist("/mnt/data/Eye_d16ec.txt"),
+    "WATCHLIST 2": load_watchlist("/mnt/data/Watchlist (2)_8e9c8.txt"),
+    "FUTURE LIST": load_watchlist("/mnt/data/FUTURE_e8298.txt")
 }
 
-# ===============================
-# Fake Astro Event Generator (Replace with real ephemeris logic)
-# ===============================
-def generate_astro_data(date, symbols):
-    rows = []
-    for sym in symbols:
-        for hour in range(9, 16):  # market hours
-            event = "Moon conjunct Mars" if hour % 2 == 0 else "Sun trine Jupiter"
-            trend = "Bullish" if "Moon" in event else "Bearish"
-            strength = 70 if trend == "Bullish" else 40
-            rows.append({
-                "DateTime": datetime(date.year, date.month, date.day, hour, 0),
-                "Symbol": sym,
-                "Trend": trend,
-                "Strength": strength,
-                "AstroEvent": event,
-                "Remark": trend
-            })
-    return pd.DataFrame(rows)
+# ======== UI Layout ========
+st.set_page_config(page_title="Astro Market Dashboard", layout="wide")
+st.title("📅 Today Market — Astro Timeline")
 
-# ===============================
-# Streamlit App Layout
-# ===============================
-st.set_page_config(layout="wide", page_title="Astro Market Dashboard")
+# Month & Date Selector
+months = list(range(1, 13))
+selected_month = st.selectbox("Select Month", months, index=datetime.now().month - 1)
 
-st.title("🔮 Astro Market Dashboard")
+dates_in_month = list(range(1, 32))
+selected_day = st.selectbox("Select Date", dates_in_month, index=datetime.now().day - 1)
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    selected_date = st.date_input("Analysis Date", datetime.now().date())
-with col2:
-    selected_time = st.time_input("Analysis Time", time(9, 15))
-with col3:
-    analysis_type = st.selectbox("Analysis Type", ["All", "Bullish", "Bearish"])
+selected_date = f"2025-{selected_month:02d}-{selected_day:02d}"
 
+# Watchlist Selector
 watchlist_name = st.selectbox("Select Watchlist", list(watchlists.keys()))
 symbols_list = watchlists[watchlist_name]
 
-# Load Data
-df = generate_astro_data(selected_date, symbols_list)
+if not symbols_list:
+    st.error(f"No symbols found in {watchlist_name}. Please upload a valid watchlist.")
+    st.stop()
 
-# Filter by trend
+# Trend Filter
+analysis_type = st.radio("Filter Events", ["All", "Bullish", "Bearish"], horizontal=True)
+
+# ======== Generate / Load Data ========
+df = generate_mock_astro_data(selected_date, symbols_list)
+
+# Apply Filter
 if analysis_type != "All":
     df = df[df["Trend"] == analysis_type]
 
-# ===============================
-# Sentiment Cards
-# ===============================
-st.subheader("📊 Watchlist Analysis Results")
-cards_col = st.columns(4)
+if df.empty:
+    st.warning("No astro events found for this selection.")
+    st.stop()
 
-for i, sym in enumerate(df["Symbol"].unique()):
-    subdf = df[df["Symbol"] == sym]
-    avg_strength = subdf["Strength"].mean()
-    sentiment = subdf["Trend"].mode()[0]
-    color = "green" if sentiment == "Bullish" else "red" if sentiment == "Bearish" else "gray"
+# ======== Summary Cards ========
+col1, col2, col3 = st.columns(3)
+bullish_count = len(df[df["Trend"] == "Bullish"])
+bearish_count = len(df[df["Trend"] == "Bearish"])
+neutral_count = len(df[df["Trend"] == "Neutral"])
 
-    with cards_col[i % 4]:
-        st.markdown(
-            f"""
-            <div style='background-color:{color};padding:15px;border-radius:10px;text-align:center;color:white;'>
-                <h4>{sym}</h4>
-                <p>{sentiment}</p>
-                <b>Strength: {avg_strength:.0f}%</b>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+col1.metric("📈 Bullish", bullish_count)
+col2.metric("📉 Bearish", bearish_count)
+col3.metric("⚖ Neutral", neutral_count)
 
-# ===============================
-# Table View
-# ===============================
+# ======== Detailed Table ========
 st.subheader(f"Astro Events for {selected_date} — {watchlist_name}")
 st.dataframe(df, use_container_width=True)
-
-# ===============================
-# Timeline Chart
-# ===============================
-st.subheader("📅 Intraday Trend Timeline")
-fig = px.scatter(df, x="DateTime", y="Symbol", color="Trend",
-                 hover_data=["AstroEvent", "Strength"], symbol="Trend",
-                 color_discrete_map={"Bullish": "blue", "Bearish": "red", "Neutral": "gray"})
-st.plotly_chart(fig, use_container_width=True)
