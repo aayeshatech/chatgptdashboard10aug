@@ -575,7 +575,7 @@ def create_transit_cards(start_date, days, sectors, tz_in, start_t, end_t, scori
     return cards
 
 def render_cards(cards, header):
-    """Render transit cards with styling"""
+    """Render transit cards with styling - CLEANED VERSION"""
     st.markdown(f"### {header}")
     if not cards:
         st.info("No transits found.")
