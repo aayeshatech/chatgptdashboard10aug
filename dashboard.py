@@ -1,6 +1,6 @@
 
 # astro_transit_app.py
-# Vedic Sidereal Transits — Strict KP + Highlights + Sector Scanner
+# Vedic Sidereal Transits — KP Strict + Highlights + Sector Scanner (deduped widget keys)
 
 import math
 from datetime import datetime, timedelta, time as dtime
@@ -59,7 +59,7 @@ NAK_LORD = {
     "Purva Bhadrapada":"Jupiter","Uttara Bhadrapada":"Saturn","Revati":"Mercury"
 }
 
-# ---------- Helpers ----------
+# ---------- Helpers (same as previous build) ----------
 def safe_float(x, default=None):
     try:
         return float(x)
@@ -172,7 +172,7 @@ def declination(body, jd_ut):
     lon, lat, dist, speed = _try_calc_ut(jd_ut, body, flag_extra=swe.FLG_EQUATORIAL)
     return lat
 
-# ---------- Core computations (aspect timeline & KP table) ----------
+# ---------- Core computations ----------
 def refine_exact_time(body_a, body_b, target_angle, start_utc, tzname, ay_mode, tol_deg=1/60, max_iter=28):
     left = start_utc - timedelta(hours=6)
     right = start_utc + timedelta(hours=6)
@@ -245,7 +245,6 @@ def planetary_aspect_timeline(date_local, tzname="Asia/Kolkata", ay_mode=swe.SID
 def intraday_kp_table(date_local, tzname="Asia/Kolkata", ay_mode=swe.SIDM_KRISHNAMURTI,
                       planets=("Moon","Mercury","Venus","Sun","Mars","Jupiter","Saturn","Rahu","Ketu"),
                       step_minutes=1):
-    """Strict KP by default: Krishnamurti ayanamsa + 1-min Moon-friendly scan."""
     swe.set_sid_mode(ay_mode, 0, 0)
     try: swe.set_ephe_path("/usr/share/ephe")
     except Exception: pass
@@ -281,7 +280,7 @@ def intraday_kp_table(date_local, tzname="Asia/Kolkata", ay_mode=swe.SIDM_KRISHN
                 lon_exact = sidereal_longitude(body, jd_exact, ay_mode)
                 sign_ex, deg_ex = ecl_to_sign_deg(lon_exact)
                 nak_ex, pada_ex, star_ex, sub_ex = kp_sublord_of_longitude(lon_exact)
-                motion = "D"  # simplify
+                motion = "D"
                 rows.append({
                     "Planet": pname[:2],
                     "Date": to_local(hi, tzname).strftime("%Y-%m-%d"),
@@ -300,7 +299,7 @@ def intraday_kp_table(date_local, tzname="Asia/Kolkata", ay_mode=swe.SIDM_KRISHN
             cur = nxt
     return pd.DataFrame(rows).sort_values(["Date","Time","Planet"])
 
-# ----- Scoring rules for analysis -----
+# ----- Scoring rules & styling -----
 DEFAULT_RULES = {
     "weights": {
         "benefics": {"Jupiter": 2.0, "Venus": 1.5, "Moon": 1.0, "Mercury": 0.8},
@@ -358,7 +357,6 @@ def classify_score(score, rules=DEFAULT_RULES):
     if score <= rules["thresholds"]["bearish"]: return "Bearish"
     return "Neutral"
 
-# ---- Styling helpers ----
 def style_signal_table(df):
     if df.empty: return df
     def color_row(row):
@@ -376,14 +374,14 @@ if not SWISSEPH_AVAILABLE:
     st.error("pyswisseph not installed here. Install locally: pip install pyswisseph streamlit pytz pandas")
     st.stop()
 
-# Global controls
+# Global controls (unique keys)
 colA, colB, colC = st.columns(3)
 with colA:
-    date_in = st.date_input("Select Date", value=pd.Timestamp.today().date())
+    date_in = st.date_input("Select Date", value=pd.Timestamp.today().date(), key="date_global")
 with colB:
-    tz_in = st.text_input("Time Zone (IANA)", value="Asia/Kolkata")
+    tz_in = st.text_input("Time Zone (IANA)", value="Asia/Kolkata", key="tz_global")
 with colC:
-    strict_kp = st.checkbox("KP strict mode (Krishnamurti + 1-min Moon scan)", value=True)
+    strict_kp = st.checkbox("KP strict mode (Krishnamurti + 1-min Moon scan)", value=True, key="strict_global")
 
 ay_mode = swe.SIDM_KRISHNAMURTI if strict_kp else swe.SIDM_LAHIRI
 swe.set_sid_mode(ay_mode, 0, 0)
@@ -400,13 +398,13 @@ with tabs[0]:
     st.subheader("📊 Data Analysis — Symbol-wise Bullish/Bearish Timeline")
     c1, c2, c3, c4 = st.columns([2,1,1,1])
     with c1:
-        symbol = st.text_input("Symbol", value="NIFTY")
+        symbol = st.text_input("Symbol", value="NIFTY", key="symbol_analysis")
     with c2:
-        asset_class = st.selectbox("Asset Class", ["NIFTY","BANKNIFTY","GOLD","CRUDE","BTC","DOW","OTHER"], index=0)
+        asset_class = st.selectbox("Asset Class", ["NIFTY","BANKNIFTY","GOLD","CRUDE","BTC","DOW","OTHER"], index=0, key="asset_class_analysis")
     with c3:
-        start_t = st.time_input("Start Time", value=dtime(9,15))
+        start_t = st.time_input("Start Time", value=dtime(9,15), key="start_time_analysis")
     with c4:
-        end_t = st.time_input("End Time", value=dtime(15,30))
+        end_t = st.time_input("End Time", value=dtime(15,30), key="end_time_analysis")
 
     tz = pytz.timezone(tz_in)
     dfA = asp_timeline_df.copy()
@@ -470,11 +468,11 @@ with tabs[2]:
 
     left, right = st.columns([2,1])
     with left:
-        sector = st.selectbox("Sector", list(DEFAULT_SECTORS.keys()), index=0)
+        sector = st.selectbox("Sector", list(DEFAULT_SECTORS.keys()), index=0, key="sector_select")
     with right:
-        edit = st.checkbox("Edit sector list", value=False)
+        edit = st.checkbox("Edit sector list", value=False, key="sector_edit_toggle")
 
-    sectors_json = st.text_area("Edit sector mapping (Python dict)", value=str(DEFAULT_SECTORS), height=160, disabled=not edit)
+    sectors_json = st.text_area("Edit sector mapping (Python dict)", value=str(DEFAULT_SECTORS), height=160, disabled=not edit, key="sector_json")
     try:
         import ast
         sectors = ast.literal_eval(sectors_json) if edit else DEFAULT_SECTORS
@@ -483,13 +481,13 @@ with tabs[2]:
         st.warning("Sector JSON parse failed. Using defaults.")
 
     symbols = sectors.get(sector, [])
-    symbol = st.selectbox("Symbol", symbols, index=0 if symbols else None, disabled=(len(symbols)==0))
+    symbol_sec = st.selectbox("Symbol", symbols, index=0 if symbols else None, disabled=(len(symbols)==0), key="sector_symbol")
 
     s1, s2 = st.columns(2)
     with s1:
-        start_t2 = st.time_input("Start Time", value=dtime(9,15))
+        start_t2 = st.time_input("Start Time", value=dtime(9,15), key="start_time_sector")
     with s2:
-        end_t2 = st.time_input("End Time", value=dtime(15,30))
+        end_t2 = st.time_input("End Time", value=dtime(15,30), key="end_time_sector")
 
     # Overview for all symbols in sector
     tz = pytz.timezone(tz_in)
@@ -497,9 +495,7 @@ with tabs[2]:
     end_local2 = tz.localize(datetime.combine(date_in, end_t2))
     if end_local2 <= start_local2: end_local2 = end_local2 + timedelta(days=1)
 
-    def signals_for(sym):
-        # Use NIFTY bias for most, BANKNIFTY for bank sector
-        acl = "BANKNIFTY" if sector == "BANKNIFTY" else "NIFTY"
+    def signals_for(sym, acl):
         dfA = asp_timeline_df.copy()
         dfA["TimeLocal"] = pd.to_datetime(dfA["Time"], format="%Y-%m-%d %H:%M").apply(lambda x: tz.localize(x))
         dfA = dfA[(dfA["TimeLocal"] >= start_local2) & (dfA["TimeLocal"] < end_local2)].copy()
@@ -540,17 +536,18 @@ with tabs[2]:
         return combined, bull, bear, neu
 
     if symbols:
-        # Overview table counts
         rows = []
         for sym in symbols:
-            _, b, s, n = signals_for(sym)
+            acl = "BANKNIFTY" if sector == "BANKNIFTY" else "NIFTY"
+            _, b, s, n = signals_for(sym, acl)
             rows.append({"Symbol": sym, "Bullish": b, "Bearish": s, "Neutral": n})
         overview = pd.DataFrame(rows).sort_values(["Bullish","Bearish"], ascending=[False,True])
         st.markdown("**Sector overview (counts in selected time window):**")
         st.dataframe(overview, use_container_width=True)
 
         st.markdown("**Detailed signals for selected symbol:**")
-        detail, bcnt, scnt, ncnt = signals_for(symbol)
+        acl = "BANKNIFTY" if sector == "BANKNIFTY" else "NIFTY"
+        detail, bcnt, scnt, ncnt = signals_for(symbol_sec, acl)
         st.dataframe(style_signal_table(detail), use_container_width=True)
     else:
         st.info("No symbols configured for this sector.")
