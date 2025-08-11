@@ -1,137 +1,153 @@
-import streamlit as st
 import pandas as pd
-import random
-from datetime import datetime, timedelta
+import numpy as np
+import datetime
 
-# --------------------------------
-# Mock Data Generator
-# --------------------------------
-def generate_mock_data(start_year=2025, end_year=2030):
-    symbols = ["AAPL", "GOOG", "MSFT", "TSLA", "AMZN", "NFLX"]
-    transits = ["Moon Conjunct Sun", "Mars Trine Jupiter", "Venus Square Saturn", "Mercury Opposite Neptune"]
-    impacts = ["Bullish", "Bearish"]
-    planets = ["Sun", "Moon", "Mars", "Venus", "Jupiter", "Saturn"]
+# Load the CSV file (assuming it is in the same folder)
+file_path = 'vedic_sidereal_ephemeris_mock_2024_2032.csv'
+astro_df = pd.read_csv(file_path)
 
-    data = []
-    for year in range(start_year, end_year + 1):
-        for month in range(1, 13):
-            for _ in range(10):  # events per month
-                date = datetime(year, month, random.randint(1, 28))
-                start_time = datetime(year, month, date.day, random.randint(0, 23), 0)
-                end_time = start_time + timedelta(hours=random.randint(1, 3))
-                sym = random.choice(symbols)
-                data.append({
-                    "Date": date.date(),
-                    "Start Time": start_time.strftime("%H:%M"),
-                    "End Time": end_time.strftime("%H:%M"),
-                    "Symbol": sym,
-                    "Transit": random.choice(transits),
-                    "Planet": random.choice(planets),
-                    "Impact": random.choice(impacts),
-                    "Strength": random.randint(60, 100)
-                })
-    return pd.DataFrame(data)
+# Convert the Date column to datetime and filter the desired range (2024–2030)
+astro_df['Date'] = pd.to_datetime(astro_df['Date'])
+astro_df = astro_df[(astro_df['Date'] >= '2024-01-01') & (astro_df['Date'] <= '2030-12-31')]
 
-mock_df = generate_mock_data()
+# Define home (rulership) and exaltation signs for each classical planet
+planet_home_signs = {
+    'Sun': ['Leo'],
+    'Moon': ['Cancer'],
+    'Mars': ['Aries', 'Scorpio'],
+    'Mercury': ['Gemini', 'Virgo'],
+    'Jupiter': ['Sagittarius', 'Pisces'],
+    'Venus': ['Taurus', 'Libra'],
+    'Saturn': ['Capricorn', 'Aquarius'],
+}
+planet_exalt_sign = {
+    'Sun': 'Aries',
+    'Moon': 'Taurus',
+    'Mars': 'Capricorn',
+    'Mercury': 'Virgo',
+    'Jupiter': 'Cancer',
+    'Venus': 'Pisces',
+    'Saturn': 'Libra',
+}
 
-# --------------------------------
-# Utility: Display Cards
-# --------------------------------
-def display_cards(df):
-    for _, row in df.iterrows():
-        color = "lightgreen" if row["Impact"] == "Bullish" else "#ff9999"
-        st.markdown(
-            f"""
-            <div style='background-color:{color}; padding:10px; border-radius:10px; margin-bottom:10px'>
-            <b>{row['Date']} {row['Start Time']} - {row['End Time']}</b><br>
-            <b>Symbol:</b> {row['Symbol']}<br>
-            <b>Transit:</b> {row['Transit']} ({row['Planet']})<br>
-            <b>Impact:</b> {row['Impact']}<br>
-            <b>Strength:</b> {row['Strength']}%
-            </div>
-            """, unsafe_allow_html=True
-        )
+# Add a new column 'Status' indicating Bullish if planet is in its home or exalted sign, otherwise Bearish
+astro_df['Status'] = astro_df.apply(
+    lambda row: 'Bullish'
+    if (row['Rashi'] in planet_home_signs.get(row['Planet'], [])) or
+       (row['Rashi'] == planet_exalt_sign.get(row['Planet'], None))
+    else 'Bearish',
+    axis=1
+)
 
-# --------------------------------
-# Sidebar: Upload Watchlists
-# --------------------------------
-st.sidebar.header("Upload Watchlists")
-wl1 = st.sidebar.file_uploader("Watchlist 1", type=["txt"])
-wl2 = st.sidebar.file_uploader("Watchlist 2", type=["txt"])
-wl3 = st.sidebar.file_uploader("Watchlist 3", type=["txt"])
+def compute_timeline(symbol: str, start_date: pd.Timestamp, end_date: pd.Timestamp):
+    """
+    Return a list of segments where the planet stays in the same sign and status
+    between start_date and end_date.
+    """
+    df = astro_df[(astro_df['Planet'] == symbol) &
+                  (astro_df['Date'] >= start_date) &
+                  (astro_df['Date'] <= end_date)].copy().sort_values('Date')
+    timeline = []
+    if df.empty:
+        return timeline
 
-watchlist_symbols = set()
-for wl in [wl1, wl2, wl3]:
-    if wl:
-        watchlist_symbols.update(pd.read_csv(wl, header=None)[0].tolist())
+    current_status = df.iloc[0]['Status']
+    current_rashi = df.iloc[0]['Rashi']
+    segment_start = df.iloc[0]['Date']
 
-# --------------------------------
-# Tabs
-# --------------------------------
-tab1, tab2, tab3 = st.tabs(["📅 Today Market", "📊 Screener", "🌌 Upcoming Transit"])
+    for i in range(1, len(df)):
+        row = df.iloc[i]
+        if row['Rashi'] != current_rashi or row['Status'] != current_status:
+            segment_end = df.iloc[i - 1]['Date']
+            timeline.append({
+                'start': segment_start,
+                'end': segment_end,
+                'rashi': current_rashi,
+                'status': current_status
+            })
+            current_status = row['Status']
+            current_rashi = row['Rashi']
+            segment_start = row['Date']
 
-# --------------------------------
-# Tab 1: Today Market
-# --------------------------------
-with tab1:
-    st.subheader("Today Market – Bullish & Bearish Symbols")
-    year = st.selectbox("Select Year", sorted(mock_df["Date"].apply(lambda x: x.year).unique()))
-    month = st.selectbox("Select Month", range(1, 13))
-    date = st.selectbox("Select Date", sorted(mock_df[mock_df["Date"].apply(lambda x: x.year == year) &
-                                                     (mock_df["Date"].apply(lambda x: x.month) == month)]["Date"].unique()))
-    sentiment = st.radio("Select Sentiment", ["Bullish", "Bearish"])
+    # Append the final segment
+    timeline.append({
+        'start': segment_start,
+        'end': df.iloc[-1]['Date'],
+        'rashi': current_rashi,
+        'status': current_status
+    })
+    return timeline
 
-    filtered_df = mock_df[(mock_df["Date"] == date) & (mock_df["Impact"] == sentiment)]
-    if watchlist_symbols:
-        filtered_df = filtered_df[filtered_df["Symbol"].isin(watchlist_symbols)]
+def astro_timeline_hourly(symbol: str, date_str: str, start_time_str: str, end_time_str: str):
+    """
+    For a given date and intraday time range, return the planet’s status segments.
+    Because the ephemeris is daily, the status remains constant within the day.
+    """
+    date = pd.to_datetime(date_str)
+    start_dt = datetime.datetime.combine(date.date(), pd.to_datetime(start_time_str).time())
+    end_dt = datetime.datetime.combine(date.date(), pd.to_datetime(end_time_str).time())
 
-    if filtered_df.empty:
-        st.info("No data found for selection.")
-    else:
-        display_cards(filtered_df)
+    # Look one day either side to catch sign changes at midnight
+    timeline = compute_timeline(symbol, date - pd.Timedelta(days=1), date + pd.Timedelta(days=1))
+    intraday_segments = []
+    for seg in timeline:
+        # Only keep segments that intersect our date
+        seg_start = seg['start']
+        seg_end = seg['end'] + pd.Timedelta(hours=23)
+        if seg_end.date() < date.date() or seg_start.date() > date.date():
+            continue
+        # Intersection of our intraday period with this segment
+        seg_start_time = max(seg_start, start_dt)
+        seg_end_time = min(seg_end, end_dt)
+        if seg_start_time <= seg_end_time:
+            intraday_segments.append({
+                'from': seg_start_time,
+                'to': seg_end_time,
+                'rashi': seg['rashi'],
+                'status': seg['status']
+            })
+    return intraday_segments
 
-# --------------------------------
-# Tab 2: Screener
-# --------------------------------
-with tab2:
-    st.subheader("Screener – Weekly or Monthly Astro Events")
-    mode = st.radio("View By", ["Week", "Month"])
-    year = st.selectbox("Year", sorted(mock_df["Date"].apply(lambda x: x.year).unique()), key="scr_year")
-    month = st.selectbox("Month", range(1, 13), key="scr_month")
+def build_watchlist(symbols: list, date_str: str):
+    """
+    For each symbol in the list, return its status on the given date and the next change date.
+    """
+    date = pd.to_datetime(date_str)
+    watchlist = []
+    for sym in symbols:
+        df = astro_df[(astro_df['Planet'] == sym) & (astro_df['Date'] <= date)].copy().sort_values('Date')
+        if df.empty:
+            continue
+        current_row = df.iloc[-1]
+        status = current_row['Status']
+        rashi = current_row['Rashi']
 
-    if mode == "Week":
-        start_date = st.date_input("Select Start Date")
-        end_date = start_date + timedelta(days=7)
-        scr_df = mock_df[(mock_df["Date"] >= start_date) & (mock_df["Date"] <= end_date)]
-    else:
-        scr_df = mock_df[(mock_df["Date"].apply(lambda x: x.year) == year) &
-                         (mock_df["Date"].apply(lambda x: x.month) == month)]
+        # Determine the next date when the status changes
+        df_future = astro_df[(astro_df['Planet'] == sym) & (astro_df['Date'] > date)].sort_values('Date')
+        next_change_date = None
+        days_until_change = None
+        if not df_future.empty:
+            initial_status = df_future.iloc[0]['Status']
+            for i in range(1, len(df_future)):
+                if df_future.iloc[i]['Status'] != initial_status:
+                    next_change_date = df_future.iloc[i]['Date']
+                    days_until_change = (next_change_date - date).days
+                    break
 
-    if watchlist_symbols:
-        scr_df = scr_df[scr_df["Symbol"].isin(watchlist_symbols)]
+        watchlist.append({
+            'symbol': sym,
+            'status': status,
+            'rashi': rashi,
+            'days_until_change': days_until_change,
+            'next_change_date': next_change_date
+        })
+    return watchlist
 
-    if scr_df.empty:
-        st.info("No events found.")
-    else:
-        display_cards(scr_df)
+# Example usage:
+# Watchlist for 10 August 2025
+watchlist_data = build_watchlist(['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn'], '2025-08-10')
+print("Watchlist on 2025-08-10:", watchlist_data)
 
-# --------------------------------
-# Tab 3: Upcoming Transit
-# --------------------------------
-with tab3:
-    st.subheader("Upcoming Transit Events")
-    year = st.selectbox("Year", sorted(mock_df["Date"].apply(lambda x: x.year).unique()), key="up_year")
-    month = st.selectbox("Month", range(1, 13), key="up_month")
-    sentiment = st.radio("Sentiment", ["Bullish", "Bearish"], key="up_sentiment")
-
-    up_df = mock_df[(mock_df["Date"].apply(lambda x: x.year) == year) &
-                    (mock_df["Date"].apply(lambda x: x.month) == month) &
-                    (mock_df["Impact"] == sentiment)]
-
-    if watchlist_symbols:
-        up_df = up_df[up_df["Symbol"].isin(watchlist_symbols)]
-
-    if up_df.empty:
-        st.info("No transit events found.")
-    else:
-        display_cards(up_df)
+# Intraday timeline for Mars on 2025-08-10 (09:00 – 16:00)
+timeline_data = astro_timeline_hourly('Mars', '2025-08-10', '09:00', '16:00')
+print("Intraday timeline for Mars:", timeline_data)
