@@ -5,44 +5,51 @@ import streamlit as st
 st.set_page_config(page_title="Astro‑Based Market Dashboard", layout="wide")
 st.title("Astro‑Based Market Dashboard")
 
-# ----------------------------------------------------------------------
-# 1. Upload the ephemeris CSV file
-# ----------------------------------------------------------------------
+# ------------------------------------------------------------------
+# 1. File upload widgets
+# ------------------------------------------------------------------
+
+# Upload the ephemeris CSV file
 ephemeris_file = st.file_uploader(
     "Upload the sidereal ephemeris CSV (vedic_sidereal_ephemeris_mock_2024_2032.csv)",
     type=["csv"]
 )
 
-# 2. Upload the watch‑list file (comma‑separated symbols)
+# Upload the watch‑list file (comma‑separated symbols)
 watchlist_file = st.file_uploader(
     "Upload your watch‑list file (comma‑separated symbols) – optional",
     type=["txt", "csv"]
 )
 
-# Load the ephemeris if provided
+# ------------------------------------------------------------------
+# 2. Load ephemeris and watch‑list
+# ------------------------------------------------------------------
+
 if ephemeris_file is not None:
+    # Read the ephemeris into a DataFrame
     astro_df = pd.read_csv(ephemeris_file)
     astro_df['Date'] = pd.to_datetime(astro_df['Date'])
+    # Limit to the range 2024–2030
     astro_df = astro_df[(astro_df['Date'] >= '2024-01-01') & (astro_df['Date'] <= '2030-12-31')]
     st.success("Ephemeris data loaded.")
 else:
     astro_df = None
-    st.warning("Please upload the ephemeris CSV to continue.")
+    st.warning("Please upload the ephemeris file to proceed.")
 
-# Parse the watch‑list file into a list of symbols
+# Read watch‑list symbols into a list
 if watchlist_file is not None:
     content = watchlist_file.read().decode('utf-8')
     stock_list = [s.strip() for s in content.split(',') if s.strip()]
-    st.success(f"Loaded {len(stock_list)} symbols from watch‑list.")
+    st.success(f"Loaded {len(stock_list)} watch‑list symbols.")
 else:
     stock_list = []
-    st.info("No watch‑list uploaded; only planetary statuses will be shown.")
+    st.info("No watch‑list uploaded; only planetary status will be shown.")
 
-# Only proceed if ephemeris has been loaded
+# Proceed only if ephemeris is loaded
 if astro_df is not None:
 
     # ------------------------------------------------------------------
-    # 3. Set up planet rulerships and exaltations
+    # 3. Define planet rulership and exaltation signs
     # ------------------------------------------------------------------
     planet_home_signs = {
         'Sun': ['Leo'],
@@ -63,7 +70,7 @@ if astro_df is not None:
         'Saturn': 'Libra',
     }
 
-    # Add a 'Status' column based on whether the planet is in its own or exalted sign
+    # Add a 'Status' column: Bullish if in own or exalted sign, else Bearish
     astro_df['Status'] = astro_df.apply(
         lambda row: 'Bullish'
         if (row['Rashi'] in planet_home_signs.get(row['Planet'], [])) or
@@ -73,39 +80,8 @@ if astro_df is not None:
     )
 
     # ------------------------------------------------------------------
-    # Helper functions
+    # 4. Helper functions
     # ------------------------------------------------------------------
-    def compute_timeline(symbol, start_date, end_date):
-        df = astro_df[(astro_df['Planet'] == symbol) &
-                      (astro_df['Date'] >= start_date) &
-                      (astro_df['Date'] <= end_date)].copy().sort_values('Date')
-        timeline = []
-        if df.empty:
-            return timeline
-        current_status = df.iloc[0]['Status']
-        current_rashi = df.iloc[0]['Rashi']
-        segment_start = df.iloc[0]['Date']
-        for i in range(1, len(df)):
-            row = df.iloc[i]
-            if row['Rashi'] != current_rashi or row['Status'] != current_status:
-                segment_end = df.iloc[i - 1]['Date']
-                timeline.append({
-                    'start': segment_start,
-                    'end': segment_end,
-                    'rashi': current_rashi,
-                    'status': current_status
-                })
-                current_status = row['Status']
-                current_rashi = row['Rashi']
-                segment_start = row['Date']
-        timeline.append({
-            'start': segment_start,
-            'end': df.iloc[-1]['Date'],
-            'rashi': current_rashi,
-            'status': current_status
-        })
-        return timeline
-
     def build_watchlist(symbols, date_str):
         date = pd.to_datetime(date_str)
         watchlist = []
@@ -160,7 +136,7 @@ if astro_df is not None:
         return pd.DataFrame(rows)
 
     # ------------------------------------------------------------------
-    # 4. User inputs: select a date and optionally define stock→planet mappings
+    # 5. User inputs for date and symbol→planet mapping
     # ------------------------------------------------------------------
     col1, col2 = st.columns(2)
 
@@ -179,7 +155,7 @@ if astro_df is not None:
             height=120
         )
 
-    # Convert text area input into a dictionary
+    # Convert mapping text into a dictionary
     stock_planet_map = {}
     if mapping_text.strip():
         for line in mapping_text.strip().splitlines():
@@ -187,15 +163,15 @@ if astro_df is not None:
                 sym, pl = [part.strip() for part in line.split(',')]
                 stock_planet_map[sym] = pl
             except ValueError:
-                pass  # ignore malformed lines
+                pass  # Ignore malformed lines
 
     # ------------------------------------------------------------------
-    # 5. Generate and display the report on button click
+    # 6. Generate report on button click
     # ------------------------------------------------------------------
     if st.button("Generate Report"):
         date_str = selected_date.strftime("%Y-%m-%d")
 
-        # Planetary summary
+        # Planetary status report
         planetary_watchlist = build_watchlist(
             ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn'],
             date_str
@@ -203,10 +179,10 @@ if astro_df is not None:
         st.subheader(f"Planetary Status on {date_str}")
         st.write(pd.DataFrame(planetary_watchlist))
 
-        # Watch‑list summary (if there are symbols)
+        # Watch‑list status report (only if symbols are loaded)
         if stock_list:
             stock_df = stock_status_on_date(date_str, stock_planet_map)
             st.subheader(f"Watch‑List Symbols Status on {date_str}")
             st.write(stock_df)
         else:
-            st.info("No watch‑list uploaded; only planetary statuses are shown.")
+            st.info("No watch‑list symbols provided; only planetary status is shown.")
