@@ -4,6 +4,9 @@ from datetime import datetime, timedelta, time as dtime
 import pytz
 import pandas as pd
 import streamlit as st
+import matplotlib.pyplot as plt
+import calendar as _cal
+import numpy as np
 
 # ---------------- Setup ----------------
 SWISSEPH_AVAILABLE = True
@@ -413,6 +416,36 @@ def build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, 
     df = pd.DataFrame(rows).sort_values(["NetScore","Avg/Stock","Confidence"], ascending=[False,False,False]).reset_index(drop=True)
     return df
 
+# Heatmap helper
+def month_calendar_heatmap(month_days, month_df, title):
+    score_map = {row['Date']: float(row['NetScore']) for _, row in month_df.iterrows()}
+    first = month_days[0]
+    first_weekday = _cal.monthrange(first.year, first.month)[0]  # Mon=0..Sun=6
+    values = [[np.nan]*7 for _ in range(6)]
+    labels = [[""]*7 for _ in range(6)]
+    r = 0; c = first_weekday
+    for d in month_days:
+        key = str(d)
+        val = score_map.get(key, 0.0)
+        values[r][c] = val
+        labels[r][c] = str(d.day)
+        c += 1
+        if c == 7:
+            c = 0; r += 1
+    arr = np.array(values, dtype=float)
+    fig, ax = plt.subplots(figsize=(8,5))
+    im = ax.imshow(arr, aspect='equal')
+    for i in range(6):
+        for j in range(7):
+            if not np.isnan(arr[i,j]):
+                ax.text(j, i, labels[i][j], ha='center', va='center', fontsize=10, color='white')
+    ax.set_xticks(range(7)); ax.set_yticks(range(6))
+    ax.set_xticklabels(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'])
+    ax.set_yticklabels(['W1','W2','W3','W4','W5','W6'])
+    ax.set_title(title)
+    plt.tight_layout()
+    return fig
+
 # ---------------- UI ----------------
 st.set_page_config(page_title="Vedic Sidereal — KP Strict + Sector Ranking", layout="wide")
 st.title("🪐 Vedic Sidereal — Sector Ranking + KP Strict")
@@ -448,7 +481,7 @@ with st.spinner("Computing base timelines..."):
     asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, step_minutes=20)
     kp_moon_df = intraday_kp_table(date_in, tzname=tz_in, ay_mode=ay_mode, planets=("Moon",), step_minutes=1 if strict_kp else 5)
 
-tabs = st.tabs(["Settings", "Sector Scanner", "Data Analysis", "Intraday KP Table"])
+tabs = st.tabs(["Settings", "Sector Scanner", "Data Analysis", "Intraday KP Table", "Weekly Outlook", "Monthly Outlook"])
 
 # -------- Settings Tab --------
 with tabs[0]:
@@ -641,3 +674,208 @@ with tabs[2]:
 with tabs[3]:
     st.subheader("📄 Intraday KP Table (Moon)")
     st.dataframe(kp_moon_df, use_container_width=True)
+
+# -------- Weekly Outlook --------
+@st.cache_data(show_spinner=False)
+def cached_streams_for_date(date_local, tzname, ay_mode, strict_kp):
+    asp = planetary_aspect_timeline(date_local, tzname=tzname, ay_mode=ay_mode, step_minutes=20)
+    kp  = intraday_kp_table(date_local, tzname=tzname, ay_mode=ay_mode, planets=("Moon",), step_minutes=1 if strict_kp else 5)
+    return asp, kp
+
+def rank_for_single_date(date_local, sectors, tz_in, start_t, end_t, kp_premium, net_threshold, rules, ay_mode, strict_kp):
+    asp, kp = cached_streams_for_date(date_local, tz_in, ay_mode, strict_kp)
+    rank_df = build_sector_overview(
+        sectors, asp, kp, tz_in, date_local, start_t, end_t,
+        kp_premium=float(kp_premium), net_threshold=float(net_threshold), rules=rules
+    )
+    return rank_df
+
+with tabs[4]:
+    st.subheader("📅 Weekly Outlook — sector bias by day")
+    s1, s2, s3 = st.columns([1,1,1])
+    with s1:
+        week_start = st.selectbox("Week starts on", ["Monday","Sunday"], index=0, key="week_start")
+    with s2:
+        w_start_t = st.time_input("Start Time", value=dtime(9,15), key="week_start_time")
+    with s3:
+        w_end_t = st.time_input("End Time", value=dtime(15,30), key="week_end_time")
+
+    anchor = pd.Timestamp(date_in)
+    if week_start == "Monday":
+        start_day = anchor - pd.Timedelta(days=anchor.weekday())
+    else:
+        start_day = anchor - pd.Timedelta(days=(anchor.weekday()+1) % 7)
+    days = [start_day + pd.Timedelta(days=i) for i in range(7)]
+    days_py = [d.date() for d in days]
+
+    DEFAULT_SECTORS = {
+        "NIFTY50": ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","BHARTIARTL","ITC","HINDUNILVR","LT","SBIN"],
+        "BANKNIFTY": ["HDFCBANK","ICICIBANK","KOTAKBANK","AXISBANK","SBIN","PNB","BANDHANBNK","FEDERALBNK"],
+        "PHARMA": ["SUNPHARMA","CIPLA","DRREDDY","DIVISLAB","AUROPHARMA"],
+        "AUTO": ["TATAMOTORS","MARUTI","M&M","EICHERMOT","HEROMOTOCO"],
+        "FMCG": ["ITC","HINDUNILVR","NESTLEIND","BRITANNIA","DABUR"],
+        "METAL": ["TATASTEEL","JSWSTEEL","HINDALCO","COALINDIA","SAIL"],
+        "OIL & GAS": ["RELIANCE","ONGC","BPCL","IOC","GAIL"],
+        "SUGAR": ["BALRAMCHIN","EIDPARRY","DHAMPURSUG","DWARKESH"],
+        "TEA": ["TATACONSUM","MCLEODRUSS","GOODRICKE"],
+        "TELECOM": ["BHARTIARTL","IDEA"]
+    }
+    with st.expander("Edit sectors (optional)"):
+        sectors_json_w = st.text_area("Sectors dict", value=str(DEFAULT_SECTORS), height=140, key="sectors_weekly_json")
+        try:
+            import ast
+            sectors_w = ast.literal_eval(sectors_json_w)
+        except Exception:
+            sectors_w = DEFAULT_SECTORS
+            st.warning("Sector mapping parse failed; using defaults.")
+    rows = []
+    with st.spinner("Computing weekly sector ranks..."):
+        for d in days_py:
+            rdf = rank_for_single_date(d, sectors_w, tz_in, w_start_t, w_end_t,
+                                       st.session_state.kp_premium, st.session_state.net_threshold,
+                                       rules_current, ay_mode, strict_kp)
+            if rdf.empty:
+                rows.append({"Date": str(d), "Top Bullish": "-", "NetScore": 0, "Top Bearish": "-", "BearScore": 0})
+            else:
+                top_bull = rdf.iloc[0]; bot_bear = rdf.sort_values("NetScore", ascending=True).iloc[0]
+                rows.append({"Date": str(d), "Top Bullish": top_bull["Sector"], "NetScore": top_bull["NetScore"],
+                             "Top Bearish": bot_bear["Sector"], "BearScore": bot_bear["NetScore"]})
+    week_df = pd.DataFrame(rows)
+    st.dataframe(week_df, use_container_width=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        day_pick = st.selectbox("Pick a day", [str(d) for d in days_py], key="weekly_day_pick")
+    with c2:
+        sector_pick = st.selectbox("Pick a sector", list(sectors_w.keys()), key="weekly_sector_pick")
+
+    dsel = pd.to_datetime(day_pick).date()
+    asp_sel, kp_sel = cached_streams_for_date(dsel, tz_in, ay_mode, strict_kp)
+    tz = pytz.timezone(tz_in)
+    start_local = tz.localize(datetime.combine(dsel, w_start_t))
+    end_local = tz.localize(datetime.combine(dsel, w_end_t))
+    if end_local <= start_local: end_local = end_local + pd.Timedelta(days=1)
+
+    dfA = asp_sel.copy()
+    dfA["TimeLocal"] = pd.to_datetime(dfA["Time"], format="%Y-%m-%d %H:%M").apply(lambda x: tz.localize(x))
+    dfA = dfA[(dfA["TimeLocal"] >= start_local) & (dfA["TimeLocal"] < end_local)].copy()
+    dfK = kp_sel.copy()
+    dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
+    dfK = dfK[(dfK["DT"] >= start_local) & (dfK["DT"] < end_local)].copy()
+
+    symbols_w = sectors_w.get(sector_pick, [])
+    if symbols_w:
+        acl = "BANKNIFTY" if sector_pick == "BANKNIFTY" else "NIFTY"
+        rows = []
+        for sym in symbols_w:
+            sA = [score_event(r, acl, rules_current) for _, r in dfA.iterrows()]
+            sK = [score_kp_only(r, acl, rules_current) for _, r in dfK.iterrows()] if not dfK.empty else []
+            sigA = [classify_score(s, rules_current) for s in sA]
+            sigK = [classify_score(s, rules_current) for s in sK]
+            signals = sigA + sigK
+            rows.append({"Symbol": sym, "Bullish": signals.count("Bullish"), "Bearish": signals.count("Bearish"), "Neutral": signals.count("Neutral")})
+        sym_df = pd.DataFrame(rows).sort_values(["Bullish","Bearish"], ascending=[False,True])
+        st.markdown(f"**{sector_pick} — {day_pick} (window {w_start_t}–{w_end_t})**")
+        st.dataframe(sym_df, use_container_width=True)
+    else:
+        st.info("No symbols configured for this sector.")
+
+# -------- Monthly Outlook --------
+with tabs[5]:
+    st.subheader("🗓️ Monthly Outlook — sector bias by date")
+    m1, m2, m3 = st.columns([1,1,1])
+    with m1:
+        m_start_t = st.time_input("Start Time", value=dtime(9,15), key="month_start_time")
+    with m2:
+        m_end_t = st.time_input("End Time", value=dtime(15,30), key="month_end_time")
+    with m3:
+        month_anchor = st.date_input("Month of", value=date_in, key="month_anchor")
+
+    first_day = pd.Timestamp(month_anchor).replace(day=1)
+    next_month = (first_day + pd.offsets.MonthEnd(0)) + pd.Timedelta(days=1)
+    last_day = (pd.Timestamp(next_month) - pd.Timedelta(days=1)).date()
+    day = first_day.date()
+    month_days = []
+    while day <= last_day:
+        month_days.append(day)
+        day = (pd.Timestamp(day) + pd.Timedelta(days=1)).date()
+
+    DEFAULT_SECTORS = {
+        "NIFTY50": ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","BHARTIARTL","ITC","HINDUNILVR","LT","SBIN"],
+        "BANKNIFTY": ["HDFCBANK","ICICIBANK","KOTAKBANK","AXISBANK","SBIN","PNB","BANDHANBNK","FEDERALBNK"],
+        "PHARMA": ["SUNPHARMA","CIPLA","DRREDDY","DIVISLAB","AUROPHARMA"],
+        "AUTO": ["TATAMOTORS","MARUTI","M&M","EICHERMOT","HEROMOTOCO"],
+        "FMCG": ["ITC","HINDUNILVR","NESTLEIND","BRITANNIA","DABUR"],
+        "METAL": ["TATASTEEL","JSWSTEEL","HINDALCO","COALINDIA","SAIL"],
+        "OIL & GAS": ["RELIANCE","ONGC","BPCL","IOC","GAIL"],
+        "SUGAR": ["BALRAMCHIN","EIDPARRY","DHAMPURSUG","DWARKESH"],
+        "TEA": ["TATACONSUM","MCLEODRUSS","GOODRICKE"],
+        "TELECOM": ["BHARTIARTL","IDEA"]
+    }
+    with st.expander("Edit sectors (optional)"):
+        sectors_json_m = st.text_area("Sectors dict", value=str(DEFAULT_SECTORS), height=140, key="sectors_monthly_json")
+        try:
+            import ast
+            sectors_m = ast.literal_eval(sectors_json_m)
+        except Exception:
+            sectors_m = DEFAULT_SECTORS
+            st.warning("Sector mapping parse failed; using defaults.")
+
+    rows = []
+    with st.spinner("Computing monthly sector ranks..."):
+        for d in month_days:
+            rdf = rank_for_single_date(d, sectors_m, tz_in, m_start_t, m_end_t,
+                                       st.session_state.kp_premium, st.session_state.net_threshold,
+                                       rules_current, ay_mode, strict_kp)
+            if rdf.empty:
+                rows.append({"Date": str(d), "Top Bullish": "-", "NetScore": 0, "Top Bearish": "-", "BearScore": 0})
+            else:
+                top_bull = rdf.iloc[0]; bot_bear = rdf.sort_values("NetScore", ascending=True).iloc[0]
+                rows.append({"Date": str(d), "Top Bullish": top_bull["Sector"], "NetScore": top_bull["NetScore"],
+                             "Top Bearish": bot_bear["Sector"], "BearScore": bot_bear["NetScore"]})
+    month_df = pd.DataFrame(rows)
+    st.dataframe(month_df, use_container_width=True)
+
+    # Calendar heatmap by top-sector NetScore
+    try:
+        fig = month_calendar_heatmap(month_days, month_df[['Date','NetScore']], title=f"NetScore Heatmap — {first_day.strftime('%B %Y')} (Top Bullish Sector)")
+        st.pyplot(fig)
+    except Exception as _e:
+        st.caption("Heatmap unavailable for this month — " + str(_e))
+
+    c1, c2 = st.columns(2)
+    with c1:
+        day_pick_m = st.selectbox("Pick a date", [str(d) for d in month_days], key="monthly_day_pick")
+    with c2:
+        sector_pick_m = st.selectbox("Pick a sector", list(sectors_m.keys()), key="monthly_sector_pick")
+
+    dsel = pd.to_datetime(day_pick_m).date()
+    asp_sel, kp_sel = cached_streams_for_date(dsel, tz_in, ay_mode, strict_kp)
+    tz = pytz.timezone(tz_in)
+    start_local = tz.localize(datetime.combine(dsel, m_start_t))
+    end_local = tz.localize(datetime.combine(dsel, m_end_t))
+    if end_local <= start_local: end_local = end_local + pd.Timedelta(days=1)
+
+    dfA = asp_sel.copy()
+    dfA["TimeLocal"] = pd.to_datetime(dfA["Time"], format="%Y-%m-%d %H:%M").apply(lambda x: tz.localize(x))
+    dfA = dfA[(dfA["TimeLocal"] >= start_local) & (dfA["TimeLocal"] < end_local)].copy()
+    dfK = kp_sel.copy()
+    dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
+    dfK = dfK[(dfK["DT"] >= start_local) & (dfK["DT"] < end_local)].copy()
+
+    symbols_m = sectors_m.get(sector_pick_m, [])
+    if symbols_m:
+        acl = "BANKNIFTY" if sector_pick_m == "BANKNIFTY" else "NIFTY"
+        rows = []
+        for sym in symbols_m:
+            sA = [score_event(r, acl, rules_current) for _, r in dfA.iterrows()]
+            sK = [score_kp_only(r, acl, rules_current) for _, r in dfK.iterrows()] if not dfK.empty else []
+            sigA = [classify_score(s, rules_current) for s in sA]
+            sigK = [classify_score(s, rules_current) for s in sK]
+            signals = sigA + sigK
+            rows.append({"Symbol": sym, "Bullish": signals.count("Bullish"), "Bearish": signals.count("Bearish"), "Neutral": signals.count("Neutral")})
+        sym_df = pd.DataFrame(rows).sort_values(["Bullish","Bearish"], ascending=[False,True])
+        st.markdown(f"**{sector_pick_m} — {day_pick_m} (window {m_start_t}–{m_end_t})**")
+        st.dataframe(sym_df, use_container_width=True)
+    else:
+        st.info("No symbols configured for this sector.")
