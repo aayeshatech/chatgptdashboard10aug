@@ -489,7 +489,7 @@ def _duration_hint(aspect_name):
         return "FOR 3–5 DAYS"
     return "FOR 2–4 DAYS"
 
-def build_transit_cards_for_range(start_date, days, tz_in, ay_mode, strict_kp, sectors, start_t, end_t, rules, kp_premium, net_threshold):
+def build_transit_cards_for_range(start_date, days, tz_in, ay_mode, strict_kp, sectors, start_t, end_t, rules, kp_premium, net_threshold, planets_filter=None, aspects_filter=None, per_day_limit=3):
     cards = []
     # Build per-day rank + extract strongest 1–2 non-Moon aspects
     for i in range(days):
@@ -610,6 +610,22 @@ def stock_breakdown_for_sector_over_window(sector, sectors_map, start_date, days
             rows_accum[sym]["Bullish"] += b; rows_accum[sym]["Bearish"] += bear; rows_accum[sym]["Neutral"] += n
     out = pd.DataFrame(list(rows_accum.values())).sort_values(["Bullish","Bearish"], ascending=[False,True])
     return out
+
+
+def _duration_days_for_bodies(aspect_name, A, B):
+    # Heuristic durations by fastest involved planet
+    fast = set([A, B])
+    if "Moon" in fast: return 2  # 1–2 days
+    if "Mercury" in fast: return 3
+    if "Sun" in fast: return 4
+    if "Venus" in fast or "Mars" in fast: return 5
+    if "Jupiter" in fast or "Saturn" in fast or "Rahu" in fast or "Ketu" in fast: return 6
+    return _duration_days(aspect_name)
+
+def _duration_hint_by_bodies(aspect_name, A, B):
+    d = _duration_days_for_bodies(aspect_name, A, B)
+    lo = max(1, d-1); hi = d+1
+    return f"FOR {lo}\u2013{hi} DAYS"
 
 # ---------------- UI ----------------
 st.set_page_config(page_title="Vedic Sidereal — KP Strict + Sector Ranking", layout="wide")
@@ -916,7 +932,29 @@ with tabs[4]:
 
     with st.expander("🔭 Next 7 Days — Major Transits", expanded=False):
         cards = build_transit_cards_for_range(days_py[0], 7, tz_in, ay_mode, strict_kp, sectors_w, w_start_t, w_end_t, RULES_CURRENT, st.session_state.kp_premium, st.session_state.net_threshold)
-        render_cards(cards, "Upcoming planetary movements affecting sectors:")
+        
+st.markdown("**Upcoming planetary movements affecting sectors:**")
+filt1, filt2, filt3 = st.columns([2,2,1])
+with filt1:
+    planets_pick = st.multiselect("Planets", ['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'], default=['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'], key="weekly_planets_filter")
+with filt2:
+    aspects_pick = st.multiselect("Aspects", ['Conjunction','Opposition','Square','Trine','Sextile'], default=['Conjunction','Opposition','Square','Trine','Sextile'], key="weekly_aspects_filter")
+with filt3:
+    per_day = st.slider("Max/day", 1, 5, 3, key="weekly_cards_per_day")
+cards = build_transit_cards_for_range(days_py[0], 7, tz_in, ay_mode, strict_kp, sectors_w, w_start_t, w_end_t, get_rules(), st.session_state.kp_premium, st.session_state.net_threshold, planets_filter=planets_pick, aspects_filter=aspects_pick, per_day_limit=per_day)
+
+st.markdown("**Upcoming planetary movements affecting sectors:**")
+filt1m, filt2m, filt3m = st.columns([2,2,1])
+with filt1m:
+    planets_pick_m = st.multiselect("Planets", ['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'], default=['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'], key="monthly_planets_filter")
+with filt2m:
+    aspects_pick_m = st.multiselect("Aspects", ['Conjunction','Opposition','Square','Trine','Sextile'], default=['Conjunction','Opposition','Square','Trine','Sextile'], key="monthly_aspects_filter")
+with filt3m:
+    per_day_m = st.slider("Max/day", 1, 5, 3, key="monthly_cards_per_day")
+cards = build_transit_cards_for_range(month_days[0], len(month_days), tz_in, ay_mode, strict_kp, sectors_m, m_start_t, m_end_t, get_rules(), st.session_state.kp_premium, st.session_state.net_threshold, planets_filter=planets_pick_m, aspects_filter=aspects_pick_m, per_day_limit=per_day_m)
+render_cards(cards, "Upcoming planetary movements affecting sectors:")
+
+
         if cards:
             options_m = [f"{c['date']} — {c['event']}" for c in cards]
             pick_m = st.selectbox("Select a transit", options_m, key="monthly_transit_pick")
@@ -1056,7 +1094,18 @@ with tabs[5]:
 
     with st.expander("🔭 This Month — Major Transits", expanded=False):
         cards = build_transit_cards_for_range(month_days[0], len(month_days), tz_in, ay_mode, strict_kp, sectors_m, m_start_t, m_end_t, RULES_CURRENT, st.session_state.kp_premium, st.session_state.net_threshold)
-        render_cards(cards, "Upcoming planetary movements affecting sectors:")
+        
+st.markdown("**Upcoming planetary movements affecting sectors:**")
+filt1, filt2, filt3 = st.columns([2,2,1])
+with filt1:
+    planets_pick = st.multiselect("Planets", ['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'], default=['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'], key="weekly_planets_filter")
+with filt2:
+    aspects_pick = st.multiselect("Aspects", ['Conjunction','Opposition','Square','Trine','Sextile'], default=['Conjunction','Opposition','Square','Trine','Sextile'], key="weekly_aspects_filter")
+with filt3:
+    per_day = st.slider("Max/day", 1, 5, 3, key="weekly_cards_per_day")
+cards = build_transit_cards_for_range(days_py[0], 7, tz_in, ay_mode, strict_kp, sectors_w, w_start_t, w_end_t, get_rules(), st.session_state.kp_premium, st.session_state.net_threshold, planets_filter=planets_pick, aspects_filter=aspects_pick, per_day_limit=per_day)
+render_cards(cards, "Upcoming planetary movements affecting sectors:")
+
         if cards:
             options_m = [f"{c['date']} — {c['event']}" for c in cards]
             pick_m = st.selectbox("Select a transit", options_m, key="monthly_transit_pick")
