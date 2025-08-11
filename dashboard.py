@@ -1,7 +1,4 @@
 
-# astro_transit_app.py
-# Vedic Sidereal Transits — KP Strict + Highlights + Sector Scanner (deduped widget keys)
-
 import math
 from datetime import datetime, timedelta, time as dtime
 import pytz
@@ -16,7 +13,6 @@ except Exception as e:
     swe = None
     _import_err = e
 
-# ---------- Constants ----------
 PLANETS = [
     ('Sun', swe.SUN if SWISSEPH_AVAILABLE else 0),
     ('Moon', swe.MOON if SWISSEPH_AVAILABLE else 1),
@@ -29,42 +25,29 @@ PLANETS = [
     ('Ketu', -1),
 ]
 
-SIGN_LORDS = {
-    "Aries":"Mars","Taurus":"Venus","Gemini":"Mercury","Cancer":"Moon","Leo":"Sun","Virgo":"Mercury",
-    "Libra":"Venus","Scorpio":"Mars","Sagittarius":"Jupiter","Capricorn":"Saturn","Aquarius":"Saturn","Pisces":"Jupiter"
-}
-
+SIGN_LORDS = {"Aries":"Mars","Taurus":"Venus","Gemini":"Mercury","Cancer":"Moon","Leo":"Sun","Virgo":"Mercury",
+    "Libra":"Venus","Scorpio":"Mars","Sagittarius":"Jupiter","Capricorn":"Saturn","Aquarius":"Saturn","Pisces":"Jupiter"}
 ZODIAC_SIGNS = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
-NAKSHATRAS = [
-    "Ashwini","Bharani","Krittika","Rohini","Mrigashira","Ardra","Punarvasu","Pushya","Ashlesha",
+NAKSHATRAS = ["Ashwini","Bharani","Krittika","Rohini","Mrigashira","Ardra","Punarvasu","Pushya","Ashlesha",
     "Magha","Purva Phalguni","Uttara Phalguni","Hasta","Chitra","Swati","Vishakha","Anuradha",
     "Jyeshtha","Mula","Purva Ashadha","Uttara Ashadha","Shravana","Dhanishta","Shatabhisha",
-    "Purva Bhadrapada","Uttara Bhadrapada","Revati"
-]
+    "Purva Bhadrapada","Uttara Bhadrapada","Revati"]
 NAK_DEG = 360.0 / 27.0
 ASPECTS = {0:"Conjunction",60:"Sextile",90:"Square",120:"Trine",180:"Opposition"}
 USE_MOSEPH = False
 
-# KP
 DASHA_ORDER = ["Ketu","Venus","Sun","Moon","Mars","Rahu","Jupiter","Saturn","Mercury"]
 DASHA_YEARS = {"Ketu":7,"Venus":20,"Sun":6,"Moon":10,"Mars":7,"Rahu":18,"Jupiter":16,"Saturn":19,"Mercury":17}
 TOTAL_YEARS = 120.0
-NAK_LORD = {
-    "Ashwini":"Ketu","Bharani":"Venus","Krittika":"Sun","Rohini":"Moon","Mrigashira":"Mars","Ardra":"Rahu",
-    "Punarvasu":"Jupiter","Pushya":"Saturn","Ashlesha":"Mercury",
-    "Magha":"Ketu","Purva Phalguni":"Venus","Uttara Phalguni":"Sun",
+NAK_LORD = {"Ashwini":"Ketu","Bharani":"Venus","Krittika":"Sun","Rohini":"Moon","Mrigashira":"Mars","Ardra":"Rahu",
+    "Punarvasu":"Jupiter","Pushya":"Saturn","Ashlesha":"Mercury","Magha":"Ketu","Purva Phalguni":"Venus","Uttara Phalguni":"Sun",
     "Hasta":"Moon","Chitra":"Mars","Swati":"Rahu","Vishakha":"Jupiter","Anuradha":"Saturn","Jyeshtha":"Mercury",
-    "Mula":"Ketu","Purva Ashadha":"Venus","Uttara Ashadha":"Sun",
-    "Shravana":"Moon","Dhanishta":"Mars","Shatabhisha":"Rahu",
-    "Purva Bhadrapada":"Jupiter","Uttara Bhadrapada":"Saturn","Revati":"Mercury"
-}
+    "Mula":"Ketu","Purva Ashadha":"Venus","Uttara Ashadha":"Sun","Shravana":"Moon","Dhanishta":"Mars","Shatabhisha":"Rahu",
+    "Purva Bhadrapada":"Jupiter","Uttara Bhadrapada":"Saturn","Revati":"Mercury"}
 
-# ---------- Helpers (same as previous build) ----------
 def safe_float(x, default=None):
-    try:
-        return float(x)
-    except Exception:
-        return default
+    try: return float(x)
+    except Exception: return default
 
 def normalize_angle(a):
     a = a % 360.0
@@ -116,13 +99,8 @@ def to_utc(dt_local, tzname):
     tz = pytz.timezone(tzname)
     return tz.localize(dt_local).astimezone(pytz.utc)
 
-def to_local(dt_utc, tzname):
-    tz = pytz.timezone(tzname)
-    return dt_utc.astimezone(tz)
-
 def julday_from_dt(dt_utc):
-    return swe.julday(dt_utc.year, dt_utc.month, dt_utc.day,
-                      dt_utc.hour + dt_utc.minute/60 + dt_utc.second/3600)
+    return swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute/60 + dt_utc.second/3600)
 
 def _extract_calc_array(out):
     if isinstance(out, (list, tuple)):
@@ -168,11 +146,6 @@ def sidereal_longitude(body, jd_ut, ayanamsa):
     ay = swe.get_ayanamsa_ut(jd_ut)
     return normalize_angle(lon - ay)
 
-def declination(body, jd_ut):
-    lon, lat, dist, speed = _try_calc_ut(jd_ut, body, flag_extra=swe.FLG_EQUATORIAL)
-    return lat
-
-# ---------- Core computations ----------
 def refine_exact_time(body_a, body_b, target_angle, start_utc, tzname, ay_mode, tol_deg=1/60, max_iter=28):
     left = start_utc - timedelta(hours=6)
     right = start_utc + timedelta(hours=6)
@@ -243,8 +216,7 @@ def planetary_aspect_timeline(date_local, tzname="Asia/Kolkata", ay_mode=swe.SID
     return pd.DataFrame(sorted(events, key=lambda x: x["Time"]))
 
 def intraday_kp_table(date_local, tzname="Asia/Kolkata", ay_mode=swe.SIDM_KRISHNAMURTI,
-                      planets=("Moon","Mercury","Venus","Sun","Mars","Jupiter","Saturn","Rahu","Ketu"),
-                      step_minutes=1):
+                      planets=("Moon",), step_minutes=1):
     swe.set_sid_mode(ay_mode, 0, 0)
     try: swe.set_ephe_path("/usr/share/ephe")
     except Exception: pass
@@ -280,12 +252,11 @@ def intraday_kp_table(date_local, tzname="Asia/Kolkata", ay_mode=swe.SIDM_KRISHN
                 lon_exact = sidereal_longitude(body, jd_exact, ay_mode)
                 sign_ex, deg_ex = ecl_to_sign_deg(lon_exact)
                 nak_ex, pada_ex, star_ex, sub_ex = kp_sublord_of_longitude(lon_exact)
-                motion = "D"
                 rows.append({
                     "Planet": pname[:2],
                     "Date": to_local(hi, tzname).strftime("%Y-%m-%d"),
                     "Time": to_local(hi, tzname).strftime("%H:%M:%S"),
-                    "Motion": motion,
+                    "Motion": "D",
                     "Sign Lord": SIGN_LORDS[sign_ex],
                     "Star Lord": NAK_LORD[nak_ex],
                     "Sub Lord": sub_ex,
@@ -299,7 +270,6 @@ def intraday_kp_table(date_local, tzname="Asia/Kolkata", ay_mode=swe.SIDM_KRISHN
             cur = nxt
     return pd.DataFrame(rows).sort_values(["Date","Time","Planet"])
 
-# ----- Scoring rules & styling -----
 DEFAULT_RULES = {
     "weights": {
         "benefics": {"Jupiter": 2.0, "Venus": 1.5, "Moon": 1.0, "Mercury": 0.8},
@@ -317,9 +287,9 @@ DEFAULT_RULES = {
     },
     "kp_weights": {
         "star": {"Jupiter": +0.6, "Venus": +0.4, "Mercury": +0.2, "Moon": +0.2, "Sun": +0.1,
-                 "Saturn": -0.6, "Mars": -0.4, "Rahu": -0.5, "Ketu": -0.4},
+            "Saturn": -0.6, "Mars": -0.4, "Rahu": -0.5, "Ketu": -0.4},
         "sub":  {"Jupiter": +0.8, "Venus": +0.5, "Mercury": +0.3, "Moon": +0.3, "Sun": +0.1,
-                 "Saturn": -0.8, "Mars": -0.6, "Rahu": -0.6, "Ketu": -0.5}
+            "Saturn": -0.8, "Mars": -0.6, "Rahu": -0.6, "Ketu": -0.5}
     },
     "thresholds": {"bullish": 1.0, "bearish": -1.0}
 }
@@ -366,15 +336,66 @@ def style_signal_table(df):
         return ['']*len(row)
     return df.style.apply(color_row, axis=1)
 
-# ---------- UI ----------
-st.set_page_config(page_title="Vedic Sidereal — KP Strict + Sector Scanner", layout="wide")
-st.title("🪐 Vedic Sidereal Transit Explorer — KP Strict Mode + Sector Scanner")
+def classify_net(bull, bear):
+    net = bull - bear
+    if net > 0: return "Bullish"
+    if net < 0: return "Bearish"
+    return "Neutral"
+
+def style_sector_table(df, current_sector=None):
+    if df.empty: return df
+    def color_row(row):
+        sig = row.get("Trend","")
+        base = ''
+        if sig == "Bullish": base = '#cfe8ff'
+        elif sig == "Bearish": base = '#ffd6d6'
+        if current_sector and row.get("Sector","") == current_sector:
+            base = '#b3e6cc'
+        return [f'background-color: {base}' if base else '' for _ in row]
+    return df.style.apply(color_row, axis=1)
+
+def build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t, end_t):
+    tz = pytz.timezone(tz_in)
+    start_local = tz.localize(datetime.combine(date_in, start_t))
+    end_local = tz.localize(datetime.combine(date_in, end_t))
+    if end_local <= start_local: end_local = end_local + timedelta(days=1)
+
+    dfA = asp_timeline_df.copy()
+    dfA["TimeLocal"] = pd.to_datetime(dfA["Time"], format="%Y-%m-%d %H:%M").apply(lambda x: tz.localize(x))
+    dfA = dfA[(dfA["TimeLocal"] >= start_local) & (dfA["TimeLocal"] < end_local)].copy()
+    dfK = kp_moon_df.copy()
+    dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
+    dfK = dfK[(dfK["DT"] >= start_local) & (dfK["DT"] < end_local)].copy()
+
+    rows = []
+    for sec, syms in sectors.items():
+        acl = "BANKNIFTY" if sec == "BANKNIFTY" else "NIFTY"
+        bull = bear = neu = 0
+        for sym in syms:
+            sA = [score_event(r, acl, DEFAULT_RULES) for _, r in dfA.iterrows()]
+            sigA = [classify_score(s, DEFAULT_RULES) for s in sA]
+            if not dfK.empty:
+                sK = [score_kp_only(r, acl, DEFAULT_RULES) for _, r in dfK.iterrows()]
+                sigK = [classify_score(s, DEFAULT_RULES) for s in sK]
+            else:
+                sigK = []
+            signals = sigA + sigK
+            bull += sum(1 for x in signals if x=="Bullish")
+            bear += sum(1 for x in signals if x=="Bearish")
+            neu  += sum(1 for x in signals if x=="Neutral")
+        rows.append({"Sector": sec, "Bullish": bull, "Bearish": bear, "Neutral": neu, "Net": bull-bear})
+    df = pd.DataFrame(rows).sort_values(["Net","Bullish"], ascending=[False,False]).reset_index(drop=True)
+    df["Trend"] = df.apply(lambda r: classify_net(r["Bullish"], r["Bearish"]), axis=1)
+    return df
+
+# ---------------- UI ----------------
+st.set_page_config(page_title="Vedic Sidereal — KP Strict + Sector Ranking", layout="wide")
+st.title("🪐 Vedic Sidereal — Sector Ranking + KP Strict")
 
 if not SWISSEPH_AVAILABLE:
     st.error("pyswisseph not installed here. Install locally: pip install pyswisseph streamlit pytz pandas")
     st.stop()
 
-# Global controls (unique keys)
 colA, colB, colC = st.columns(3)
 with colA:
     date_in = st.date_input("Select Date", value=pd.Timestamp.today().date(), key="date_global")
@@ -386,15 +407,108 @@ with colC:
 ay_mode = swe.SIDM_KRISHNAMURTI if strict_kp else swe.SIDM_LAHIRI
 swe.set_sid_mode(ay_mode, 0, 0)
 
-# Build base timelines once
 with st.spinner("Computing base timelines..."):
-    asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, orb_major=3.0, orb_moon=6.0, step_minutes=20)
+    asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, step_minutes=20)
     kp_moon_df = intraday_kp_table(date_in, tzname=tz_in, ay_mode=ay_mode, planets=("Moon",), step_minutes=1 if strict_kp else 5)
 
-# Tabs
-tabs = st.tabs(["Data Analysis", "Intraday KP Table", "Sector Scanner"])
+tabs = st.tabs(["Sector Scanner", "Data Analysis", "Intraday KP Table"])
 
 with tabs[0]:
+    st.subheader("🏭 Sector Scanner — choose sector & symbol")
+    DEFAULT_SECTORS = {
+        "NIFTY50": ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","BHARTIARTL","ITC","HINDUNILVR","LT","SBIN"],
+        "BANKNIFTY": ["HDFCBANK","ICICIBANK","KOTAKBANK","AXISBANK","SBIN","PNB","BANDHANBNK","FEDERALBNK"],
+        "PHARMA": ["SUNPHARMA","CIPLA","DRREDDY","DIVISLAB","AUROPHARMA"],
+        "AUTO": ["TATAMOTORS","MARUTI","M&M","EICHERMOT","HEROMOTOCO"],
+        "FMCG": ["ITC","HINDUNILVR","NESTLEIND","BRITANNIA","DABUR"],
+        "METAL": ["TATASTEEL","JSWSTEEL","HINDALCO","COALINDIA","SAIL"],
+        "OIL & GAS": ["RELIANCE","ONGC","BPCL","IOC","GAIL"],
+        "SUGAR": ["BALRAMCHIN","EIDPARRY","DHAMPURSUG","DWARKESH"],
+        "TEA": ["TATACONSUM","MCLEODRUSS","GOODRICKE"],
+        "TELECOM": ["BHARTIARTL","IDEA"]
+    }
+    left, right = st.columns([2,1])
+    with left:
+        sector = st.selectbox("Sector", list(DEFAULT_SECTORS.keys()), index=0, key="sector_select")
+    with right:
+        edit = st.checkbox("Edit sector list", value=False, key="sector_edit_toggle")
+    sectors_json = st.text_area("Edit sector mapping (Python dict)", value=str(DEFAULT_SECTORS), height=160, disabled=not edit, key="sector_json")
+    try:
+        import ast
+        sectors = ast.literal_eval(sectors_json) if edit else DEFAULT_SECTORS
+    except Exception:
+        sectors = DEFAULT_SECTORS
+        st.warning("Sector mapping parse failed; using defaults.")
+
+    s1, s2 = st.columns(2)
+    with s1:
+        start_t2 = st.time_input("Start Time", value=dtime(9,15), key="start_time_sector")
+    with s2:
+        end_t2 = st.time_input("End Time", value=dtime(15,30), key="end_time_sector")
+
+    # --- Sector-wide ranking FIRST ---
+    rank_df = build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t2, end_t2)
+    st.markdown("**All sectors ranking (Net = Bullish - Bearish):**")
+    st.dataframe(style_sector_table(rank_df, current_sector=sector), use_container_width=True)
+    if not rank_df.empty:
+        st.metric("Top Bullish Sector", f"{rank_df.iloc[0]['Sector']} (Net {int(rank_df.iloc[0]['Net'])})")
+
+    # --- Then focus on selected sector & symbol ---
+    symbols = sectors.get(sector, [])
+    symbol_sec = st.selectbox("Symbol", symbols, index=0 if symbols else None, disabled=(len(symbols)==0), key="sector_symbol")
+
+    tz = pytz.timezone(tz_in)
+    start_local2 = tz.localize(datetime.combine(date_in, start_t2))
+    end_local2 = tz.localize(datetime.combine(date_in, end_t2))
+    if end_local2 <= start_local2: end_local2 = end_local2 + timedelta(days=1)
+
+    def signals_for(sym, acl):
+        dfA = asp_timeline_df.copy()
+        dfA["TimeLocal"] = pd.to_datetime(dfA["Time"], format="%Y-%m-%d %H:%M").apply(lambda x: tz.localize(x))
+        dfA = dfA[(dfA["TimeLocal"] >= start_local2) & (dfA["TimeLocal"] < end_local2)].copy()
+        dfK = kp_moon_df.copy()
+        dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
+        dfK = dfK[(dfK["DT"] >= start_local2) & (dfK["DT"] < end_local2)].copy()
+        scoresA = [score_event(r, acl, DEFAULT_RULES) for _, r in dfA.iterrows()]
+        dfA["Score"] = scoresA
+        dfA["Signal"] = [classify_score(s, DEFAULT_RULES) for s in scoresA]
+        dfA["Symbol"] = sym
+        if not dfK.empty:
+            dfK["Score"] = [score_kp_only(r, acl, DEFAULT_RULES) for _, r in dfK.iterrows()]
+            dfK["Signal"] = [classify_score(s, DEFAULT_RULES) for s in dfK["Score"]]
+            dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
+            dfK_view = dfK.rename(columns={"Star Lord":"Moon Star Lord@Exact","Sub Lord":"Moon Sub-Lord@Exact","Nakshatra":"Moon Nakshatra@Exact"})
+            dfK_view["Aspect"] = "KP (Moon Star/Sub change)"
+            dfK_view["Exact°"] = ""
+            dfK_view["Planet A"] = "Moon"; dfK_view["Planet B"] = "-"
+            dfK_view["Symbol"] = sym
+            view_colsA = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B","Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
+            combined = pd.concat([dfA[view_colsA], dfK_view[view_colsA]], ignore_index=True)
+        else:
+            view_colsA = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B","Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
+            combined = dfA[view_colsA]
+        combined = combined.sort_values("Time")
+        bull = int((combined["Signal"]=="Bullish").sum())
+        bear = int((combined["Signal"]=="Bearish").sum())
+        neu  = int((combined["Signal"]=="Neutral").sum())
+        return combined, bull, bear, neu
+
+    if symbols:
+        rows = []
+        acl = "BANKNIFTY" if sector == "BANKNIFTY" else "NIFTY"
+        for sym in symbols:
+            _, b, s, n = signals_for(sym, acl)
+            rows.append({"Symbol": sym, "Bullish": b, "Bearish": s, "Neutral": n})
+        overview = pd.DataFrame(rows).sort_values(["Bullish","Bearish"], ascending=[False,True])
+        st.markdown("**Sector overview (counts in selected time window):**")
+        st.dataframe(overview, use_container_width=True)
+        st.markdown("**Detailed signals for selected symbol:**")
+        detail, bcnt, scnt, ncnt = signals_for(symbol_sec, acl)
+        st.dataframe(style_signal_table(detail), use_container_width=True)
+    else:
+        st.info("No symbols configured for this sector.")
+
+with tabs[1]:
     st.subheader("📊 Data Analysis — Symbol-wise Bullish/Bearish Timeline")
     c1, c2, c3, c4 = st.columns([2,1,1,1])
     with c1:
@@ -422,19 +536,14 @@ with tabs[0]:
     dfA["Score"] = scoresA
     dfA["Signal"] = [classify_score(s, DEFAULT_RULES) for s in scoresA]
     dfA["Symbol"] = symbol.upper()
-    view_colsA = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B",
-                  "Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
+    view_colsA = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B","Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
     dfA_view = dfA[view_colsA]
 
     if not dfK.empty:
         dfK["Score"] = [score_kp_only(r, asset_class, DEFAULT_RULES) for _, r in dfK.iterrows()]
         dfK["Signal"] = [classify_score(s, DEFAULT_RULES) for s in dfK["Score"]]
         dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
-        dfK_view = dfK.rename(columns={
-            "Star Lord":"Moon Star Lord@Exact",
-            "Sub Lord":"Moon Sub-Lord@Exact",
-            "Nakshatra":"Moon Nakshatra@Exact"
-        })
+        dfK_view = dfK.rename(columns={"Star Lord":"Moon Star Lord@Exact","Sub Lord":"Moon Sub-Lord@Exact","Nakshatra":"Moon Nakshatra@Exact"})
         dfK_view["Aspect"] = "KP (Moon Star/Sub change)"
         dfK_view["Exact°"] = ""
         dfK_view["Planet A"] = "Moon"; dfK_view["Planet B"] = "-"
@@ -447,107 +556,6 @@ with tabs[0]:
     combined = combined.sort_values("Time")
     st.dataframe(style_signal_table(combined), use_container_width=True)
 
-with tabs[1]:
-    st.subheader("📄 Intraday KP Table (Moon, Strict Mode friendly)")
-    st.dataframe(kp_moon_df, use_container_width=True)
-
 with tabs[2]:
-    st.subheader("🏭 Sector Scanner — choose sector & symbol")
-    DEFAULT_SECTORS = {
-        "NIFTY50": ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","BHARTIARTL","ITC","HINDUNILVR","LT","SBIN"],
-        "BANKNIFTY": ["HDFCBANK","ICICIBANK","KOTAKBANK","AXISBANK","SBIN","PNB","BANDHANBNK","FEDERALBNK"],
-        "PHARMA": ["SUNPHARMA","CIPLA","DRREDDY","DIVISLAB","AUROPHARMA"],
-        "AUTO": ["TATAMOTORS","MARUTI","M&M","EICHERMOT","HEROMOTOCO"],
-        "FMCG": ["ITC","HINDUNILVR","NESTLEIND","BRITANNIA","DABUR"],
-        "METAL": ["TATASTEEL","JSWSTEEL","HINDALCO","COALINDIA","SAIL"],
-        "OIL & GAS": ["RELIANCE","ONGC","BPCL","IOC","GAIL"],
-        "SUGAR": ["BALRAMCHIN","EIDPARRY","DHAMPURSUG","DWARKESH"],
-        "TEA": ["TATACONSUM","MCLEODRUSS","GOODRICKE"],
-        "TELECOM": ["BHARTIARTL","IDEA"]
-    }
-
-    left, right = st.columns([2,1])
-    with left:
-        sector = st.selectbox("Sector", list(DEFAULT_SECTORS.keys()), index=0, key="sector_select")
-    with right:
-        edit = st.checkbox("Edit sector list", value=False, key="sector_edit_toggle")
-
-    sectors_json = st.text_area("Edit sector mapping (Python dict)", value=str(DEFAULT_SECTORS), height=160, disabled=not edit, key="sector_json")
-    try:
-        import ast
-        sectors = ast.literal_eval(sectors_json) if edit else DEFAULT_SECTORS
-    except Exception:
-        sectors = DEFAULT_SECTORS
-        st.warning("Sector JSON parse failed. Using defaults.")
-
-    symbols = sectors.get(sector, [])
-    symbol_sec = st.selectbox("Symbol", symbols, index=0 if symbols else None, disabled=(len(symbols)==0), key="sector_symbol")
-
-    s1, s2 = st.columns(2)
-    with s1:
-        start_t2 = st.time_input("Start Time", value=dtime(9,15), key="start_time_sector")
-    with s2:
-        end_t2 = st.time_input("End Time", value=dtime(15,30), key="end_time_sector")
-
-    # Overview for all symbols in sector
-    tz = pytz.timezone(tz_in)
-    start_local2 = tz.localize(datetime.combine(date_in, start_t2))
-    end_local2 = tz.localize(datetime.combine(date_in, end_t2))
-    if end_local2 <= start_local2: end_local2 = end_local2 + timedelta(days=1)
-
-    def signals_for(sym, acl):
-        dfA = asp_timeline_df.copy()
-        dfA["TimeLocal"] = pd.to_datetime(dfA["Time"], format="%Y-%m-%d %H:%M").apply(lambda x: tz.localize(x))
-        dfA = dfA[(dfA["TimeLocal"] >= start_local2) & (dfA["TimeLocal"] < end_local2)].copy()
-        dfK = kp_moon_df.copy()
-        dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
-        dfK = dfK[(dfK["DT"] >= start_local2) & (dfK["DT"] < end_local2)].copy()
-
-        scoresA = [score_event(r, acl, DEFAULT_RULES) for _, r in dfA.iterrows()]
-        dfA["Score"] = scoresA
-        dfA["Signal"] = [classify_score(s, DEFAULT_RULES) for s in scoresA]
-        dfA["Symbol"] = sym
-
-        if not dfK.empty:
-            dfK["Score"] = [score_kp_only(r, acl, DEFAULT_RULES) for _, r in dfK.iterrows()]
-            dfK["Signal"] = [classify_score(s, DEFAULT_RULES) for s in dfK["Score"]]
-            dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
-            dfK_view = dfK.rename(columns={
-                "Star Lord":"Moon Star Lord@Exact",
-                "Sub Lord":"Moon Sub-Lord@Exact",
-                "Nakshatra":"Moon Nakshatra@Exact"
-            })
-            dfK_view["Aspect"] = "KP (Moon Star/Sub change)"
-            dfK_view["Exact°"] = ""
-            dfK_view["Planet A"] = "Moon"; dfK_view["Planet B"] = "-"
-            dfK_view["Symbol"] = sym
-            view_colsA = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B",
-                          "Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
-            combined = pd.concat([dfA[view_colsA], dfK_view[view_colsA]], ignore_index=True)
-        else:
-            view_colsA = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B",
-                          "Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
-            combined = dfA[view_colsA]
-
-        combined = combined.sort_values("Time")
-        bull = int((combined["Signal"]=="Bullish").sum())
-        bear = int((combined["Signal"]=="Bearish").sum())
-        neu  = int((combined["Signal"]=="Neutral").sum())
-        return combined, bull, bear, neu
-
-    if symbols:
-        rows = []
-        for sym in symbols:
-            acl = "BANKNIFTY" if sector == "BANKNIFTY" else "NIFTY"
-            _, b, s, n = signals_for(sym, acl)
-            rows.append({"Symbol": sym, "Bullish": b, "Bearish": s, "Neutral": n})
-        overview = pd.DataFrame(rows).sort_values(["Bullish","Bearish"], ascending=[False,True])
-        st.markdown("**Sector overview (counts in selected time window):**")
-        st.dataframe(overview, use_container_width=True)
-
-        st.markdown("**Detailed signals for selected symbol:**")
-        acl = "BANKNIFTY" if sector == "BANKNIFTY" else "NIFTY"
-        detail, bcnt, scnt, ncnt = signals_for(symbol_sec, acl)
-        st.dataframe(style_signal_table(detail), use_container_width=True)
-    else:
-        st.info("No symbols configured for this sector.")
+    st.subheader("📄 Intraday KP Table (Moon)")
+    st.dataframe(kp_moon_df, use_container_width=True)
