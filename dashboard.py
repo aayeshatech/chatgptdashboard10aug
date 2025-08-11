@@ -51,143 +51,6 @@ class AppConfig:
 
 config = AppConfig()
 
-# Transit-to-Sector Mapping System
-class TransitSectorMapping:
-    def __init__(self):
-        # Planetary influences on sectors
-        self.planetary_sector_influence = {
-            "Jupiter": {
-                "strong": ["BANKNIFTY", "PHARMA", "FMCG", "NIFTY50"],
-                "moderate": ["IT", "AUTO", "TELECOM"],
-                "weak": ["METAL", "OIL_GAS"]
-            },
-            "Venus": {
-                "strong": ["FMCG", "AUTO", "GOLD", "SILVER"],
-                "moderate": ["PHARMA", "IT", "CRYPTO"],
-                "weak": ["METAL", "ENERGY"]
-            },
-            "Mars": {
-                "strong": ["METAL", "ENERGY", "OIL_GAS", "AUTO"],
-                "moderate": ["NIFTY50", "CRUDE"],
-                "weak": ["PHARMA", "FMCG"]
-            },
-            "Mercury": {
-                "strong": ["IT", "TELECOM", "BANKNIFTY", "CRYPTO"],
-                "moderate": ["NIFTY50", "AUTO"],
-                "weak": ["METAL", "OIL_GAS"]
-            },
-            "Saturn": {
-                "strong": ["METAL", "ENERGY", "OIL_GAS"],
-                "moderate": ["AUTO", "BANKNIFTY"],
-                "weak": ["IT", "PHARMA", "FMCG"]
-            },
-            "Moon": {
-                "strong": ["FMCG", "PHARMA", "SILVER"],
-                "moderate": ["NIFTY50", "BANKNIFTY"],
-                "weak": ["METAL", "CRYPTO"]
-            },
-            "Sun": {
-                "strong": ["ENERGY", "GOLD", "NIFTY50"],
-                "moderate": ["PHARMA", "AUTO"],
-                "weak": ["SILVER", "CRYPTO"]
-            },
-            "Rahu": {
-                "strong": ["CRYPTO", "IT", "TELECOM"],
-                "moderate": ["METAL", "ENERGY"],
-                "weak": ["FMCG", "PHARMA"]
-            },
-            "Ketu": {
-                "strong": ["GOLD", "SILVER", "PHARMA"],
-                "moderate": ["IT", "ENERGY"],
-                "weak": ["AUTO", "FMCG"]
-            }
-        }
-        
-        # Transit effect durations (in days)
-        self.effect_duration = {
-            "Jupiter": {"fast": 15, "slow": 45, "major": 120},
-            "Saturn": {"fast": 30, "slow": 90, "major": 365},
-            "Mars": {"fast": 3, "slow": 7, "major": 21},
-            "Venus": {"fast": 5, "slow": 12, "major": 30},
-            "Mercury": {"fast": 2, "slow": 5, "major": 15},
-            "Sun": {"fast": 1, "slow": 3, "major": 7},
-            "Moon": {"fast": 1, "slow": 2, "major": 3},
-            "Rahu": {"fast": 21, "slow": 60, "major": 180},
-            "Ketu": {"fast": 21, "slow": 60, "major": 180}
-        }
-    
-    def get_affected_sectors(self, planet_a: str, planet_b: str, aspect: str, score: float) -> Dict:
-        """Get sectors affected by a planetary transit"""
-        affected_sectors = {"bullish": [], "bearish": [], "neutral": []}
-        
-        # Determine if transit is bullish or bearish
-        is_bullish = score > 0
-        
-        # Get sectors influenced by both planets
-        for planet in [planet_a, planet_b]:
-            if planet in self.planetary_sector_influence:
-                influence = self.planetary_sector_influence[planet]
-                
-                # Strong influence sectors
-                for sector in influence.get("strong", []):
-                    if is_bullish:
-                        if sector not in affected_sectors["bullish"]:
-                            affected_sectors["bullish"].append(sector)
-                    else:
-                        if sector not in affected_sectors["bearish"]:
-                            affected_sectors["bearish"].append(sector)
-                
-                # Moderate influence sectors
-                for sector in influence.get("moderate", []):
-                    if sector not in affected_sectors["bullish"] and sector not in affected_sectors["bearish"]:
-                        if abs(score) > 1.0:  # Only if strong transit
-                            if is_bullish:
-                                affected_sectors["bullish"].append(sector)
-                            else:
-                                affected_sectors["bearish"].append(sector)
-                        else:
-                            affected_sectors["neutral"].append(sector)
-        
-        return affected_sectors
-    
-    def calculate_effect_duration(self, planet_a: str, planet_b: str, aspect: str, score: float) -> int:
-        """Calculate how many days the transit effect will last"""
-        # Base duration from slower planet
-        planets = [planet_a, planet_b]
-        max_duration = 0
-        
-        for planet in planets:
-            if planet in self.effect_duration:
-                duration_map = self.effect_duration[planet]
-                
-                # Determine duration type based on score intensity
-                abs_score = abs(score)
-                if abs_score >= 2.5:
-                    duration = duration_map["major"]
-                elif abs_score >= 1.5:
-                    duration = duration_map["slow"]
-                else:
-                    duration = duration_map["fast"]
-                
-                max_duration = max(max_duration, duration)
-        
-        # Aspect type modifier
-        aspect_modifiers = {
-            "Conjunction": 1.5,
-            "Opposition": 1.3,
-            "Square": 1.2,
-            "Trine": 1.0,
-            "Sextile": 0.8
-        }
-        
-        modifier = aspect_modifiers.get(aspect, 1.0)
-        final_duration = int(max_duration * modifier)
-        
-        return max(1, min(final_duration, 365))  # Between 1 and 365 days
-
-# Initialize transit mapping
-transit_mapping = TransitSectorMapping()
-
 # Enhanced Scoring system
 class EnhancedScoring:
     def __init__(self):
@@ -200,13 +63,6 @@ class EnhancedScoring:
         self.aspect_weights = {
             "Trine": 1.2, "Sextile": 1.0, "Conjunction": 0.8,
             "Opposition": -1.0, "Square": -1.2
-        }
-        
-        self.asset_biases = {
-            "NIFTY50": {"Jupiter": 0.5, "Saturn": -0.3, "Mercury": 0.2},
-            "BANKNIFTY": {"Jupiter": 0.6, "Saturn": -0.5, "Mercury": 0.3},
-            "GOLD": {"Saturn": -0.6, "Jupiter": 0.4, "Venus": 0.2},
-            "CRYPTO": {"Rahu": 0.7, "Saturn": -0.4, "Mercury": 0.4}
         }
     
     def calculate_sector_score(self, sector_name: str, date_str: str, hour: int = 12) -> Dict:
@@ -289,91 +145,6 @@ class PlanetaryTransits:
         self.aspects = ["Conjunction", "Sextile", "Square", "Trine", "Opposition"]
         self.nakshatras = ["Ashwini", "Bharani", "Krittika", "Rohini", "Mrigashira", "Ardra", "Punarvasu"]
     
-    def generate_daily_transits_enhanced(self, date_input: datetime.date) -> pd.DataFrame:
-        """Generate enhanced planetary transits with sector mapping"""
-        transits = []
-        base_time = datetime.combine(date_input, dtime(9, 0))
-        
-        # Generate 15-20 transit events throughout the day
-        for i in range(18):
-            event_time = base_time + timedelta(minutes=i*25 + np.random.randint(-10, 10))
-            
-            # Select planets and aspect
-            planet_a = self.planets[i % len(self.planets)]
-            planet_b = self.planets[(i + 3) % len(self.planets)]
-            aspect = self.aspects[i % len(self.aspects)]
-            
-            # Calculate score
-            score = self._calculate_transit_score(planet_a, planet_b, aspect, i)
-            
-            # Get affected sectors
-            affected_sectors = transit_mapping.get_affected_sectors(planet_a, planet_b, aspect, score)
-            
-            # Calculate effect duration
-            effect_duration = transit_mapping.calculate_effect_duration(planet_a, planet_b, aspect, score)
-            
-            # Moon position for KP
-            moon_nak = self.nakshatras[i % len(self.nakshatras)]
-            
-            transits.append({
-                "Time": event_time.strftime("%H:%M"),
-                "Planet A": planet_a,
-                "Planet B": planet_b,
-                "Aspect": aspect,
-                "Exact°": round((i * 13.7) % 360, 1),
-                "Score": score,
-                "Signal": scoring.get_trend_direction(score),
-                "Strength": scoring.get_signal_strength(score),
-                "Effect Duration (Days)": effect_duration,
-                "Bullish Sectors": ", ".join(affected_sectors["bullish"][:3]),
-                "Bearish Sectors": ", ".join(affected_sectors["bearish"][:3]),
-                "Neutral Sectors": ", ".join(affected_sectors["neutral"][:2]),
-                "Moon Nakshatra": moon_nak,
-                "Star Lord": self.planets[(i + 1) % len(self.planets)],
-                "Sub Lord": self.planets[(i + 2) % len(self.planets)]
-            })
-        
-        return pd.DataFrame(transits)
-    
-    def get_sector_specific_transits(self, date_input: datetime.date, sector_name: str) -> pd.DataFrame:
-        """Get transits specifically affecting a chosen sector"""
-        all_transits = self.generate_daily_transits_enhanced(date_input)
-        
-        # Filter transits affecting the selected sector
-        sector_transits = []
-        
-        for _, transit in all_transits.iterrows():
-            is_affected = (
-                sector_name in transit["Bullish Sectors"] or
-                sector_name in transit["Bearish Sectors"] or
-                sector_name in transit["Neutral Sectors"]
-            )
-            
-            if is_affected:
-                # Determine sector effect
-                if sector_name in transit["Bullish Sectors"]:
-                    sector_effect = "Bullish"
-                    sector_score = abs(transit["Score"])
-                elif sector_name in transit["Bearish Sectors"]:
-                    sector_effect = "Bearish"
-                    sector_score = -abs(transit["Score"])
-                else:
-                    sector_effect = "Neutral"
-                    sector_score = transit["Score"] * 0.3
-                
-                sector_transits.append({
-                    "Time": transit["Time"],
-                    "Transit": f"{transit['Planet A']} {transit['Aspect']} {transit['Planet B']}",
-                    "Effect on Sector": sector_effect,
-                    "Sector Score": round(sector_score, 2),
-                    "Duration (Days)": transit["Effect Duration (Days)"],
-                    "Strength": transit["Strength"],
-                    "Star Lord": transit["Star Lord"],
-                    "Sub Lord": transit["Sub Lord"]
-                })
-        
-        return pd.DataFrame(sector_transits)
-
     def generate_daily_transits(self, date_input: datetime.date) -> pd.DataFrame:
         """Generate planetary transits for a single day"""
         transits = []
@@ -399,7 +170,7 @@ class PlanetaryTransits:
                 "Planet A": planet_a,
                 "Planet B": planet_b,
                 "Aspect": aspect,
-                "Exact°": (i * 13.7) % 360,  # Varied degrees
+                "Exact°": round((i * 13.7) % 360, 1),
                 "Score": score,
                 "Signal": scoring.get_trend_direction(score),
                 "Strength": scoring.get_signal_strength(score),
@@ -487,142 +258,10 @@ class PlanetaryTransits:
         
         return ", ".join(list(affected)[:3]) if affected else "General Market"
 
-# Stock-Level Analysis System
-class StockAnalysisEngine:
-    def __init__(self):
-        # Stock-specific planetary influences (simplified)
-        self.stock_planetary_bias = {
-            # IT Stocks
-            "TCS": {"Mercury": 0.8, "Jupiter": 0.6, "Saturn": -0.3},
-            "INFY": {"Mercury": 0.7, "Jupiter": 0.5, "Rahu": 0.4},
-            "WIPRO": {"Mercury": 0.6, "Venus": 0.4, "Saturn": -0.2},
-            
-            # Banking Stocks
-            "HDFCBANK": {"Jupiter": 0.9, "Venus": 0.5, "Saturn": -0.4},
-            "ICICIBANK": {"Jupiter": 0.8, "Mercury": 0.4, "Mars": -0.3},
-            "SBIN": {"Jupiter": 0.7, "Sun": 0.4, "Saturn": -0.5},
-            
-            # Auto Stocks
-            "TATAMOTORS": {"Mars": 0.8, "Venus": 0.6, "Saturn": -0.4},
-            "MARUTI": {"Venus": 0.7, "Mercury": 0.5, "Jupiter": 0.4},
-            
-            # Pharma Stocks
-            "SUNPHARMA": {"Jupiter": 0.8, "Moon": 0.6, "Venus": 0.4},
-            "CIPLA": {"Jupiter": 0.7, "Venus": 0.5, "Mercury": 0.3},
-            
-            # Commodity Related
-            "RELIANCE": {"Sun": 0.8, "Mars": 0.6, "Jupiter": 0.5},
-            "TATASTEEL": {"Mars": 0.9, "Saturn": -0.6, "Sun": 0.4}
-        }
-    
-    def analyze_stock_transits(self, stock_symbol: str, sector_transits: pd.DataFrame, 
-                              start_date: datetime.date, days_ahead: int = 7) -> Dict:
-        """Analyze how planetary transits affect a specific stock"""
-        
-        stock_bias = self.stock_planetary_bias.get(stock_symbol, {})
-        stock_analysis = {
-            "symbol": stock_symbol,
-            "bullish_periods": [],
-            "bearish_periods": [],
-            "neutral_periods": [],
-            "peak_bullish_time": None,
-            "peak_bearish_time": None,
-            "total_effect_days": 0,
-            "next_major_event": None
-        }
-        
-        if sector_transits.empty:
-            return stock_analysis
-        
-        current_date = start_date
-        max_bullish_score = -999
-        max_bearish_score = 999
-        
-        # Analyze each transit's effect on the stock
-        for _, transit in sector_transits.iterrows():
-            # Extract planets from transit description
-            transit_parts = transit["Transit"].split()
-            if len(transit_parts) >= 3:
-                planet_a = transit_parts[0]
-                planet_b = transit_parts[2]
-                
-                # Calculate stock-specific score
-                stock_score = 0
-                if planet_a in stock_bias:
-                    stock_score += stock_bias[planet_a]
-                if planet_b in stock_bias:
-                    stock_score += stock_bias[planet_b]
-                
-                # Apply sector effect
-                sector_multiplier = 1.0
-                if transit["Effect on Sector"] == "Bullish":
-                    sector_multiplier = 1.2
-                elif transit["Effect on Sector"] == "Bearish":
-                    sector_multiplier = -1.2
-                else:
-                    sector_multiplier = 0.5
-                
-                final_score = stock_score * sector_multiplier
-                
-                # Determine time windows
-                start_time = datetime.strptime(transit["Time"], "%H:%M").time()
-                duration_hours = min(6, transit["Duration (Days)"]) # Convert to hours for intraday
-                end_time = (datetime.combine(current_date, start_time) + timedelta(hours=duration_hours)).time()
-                
-                time_window = f"{start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')}"
-                
-                # Categorize the period
-                if final_score > 0.5:
-                    stock_analysis["bullish_periods"].append({
-                        "time": time_window,
-                        "score": round(final_score, 2),
-                        "strength": transit["Strength"],
-                        "duration_days": transit["Duration (Days)"],
-                        "planets": f"{planet_a}-{planet_b}"
-                    })
-                    
-                    if final_score > max_bullish_score:
-                        max_bullish_score = final_score
-                        stock_analysis["peak_bullish_time"] = transit["Time"]
-                
-                elif final_score < -0.5:
-                    stock_analysis["bearish_periods"].append({
-                        "time": time_window,
-                        "score": round(final_score, 2),
-                        "strength": transit["Strength"],
-                        "duration_days": transit["Duration (Days)"],
-                        "planets": f"{planet_a}-{planet_b}"
-                    })
-                    
-                    if final_score < max_bearish_score:
-                        max_bearish_score = final_score
-                        stock_analysis["peak_bearish_time"] = transit["Time"]
-                
-                else:
-                    stock_analysis["neutral_periods"].append({
-                        "time": time_window,
-                        "score": round(final_score, 2),
-                        "strength": transit["Strength"],
-                        "duration_days": transit["Duration (Days)"],
-                        "planets": f"{planet_a}-{planet_b}"
-                    })
-                
-                # Track total effect duration
-                stock_analysis["total_effect_days"] += transit["Duration (Days)"]
-        
-        # Find next major event
-        future_events = [p for p in stock_analysis["bullish_periods"] + stock_analysis["bearish_periods"] 
-                        if abs(p["score"]) >= 1.0]
-        if future_events:
-            stock_analysis["next_major_event"] = future_events[0]
-        
-        return stock_analysis
-
-# Initialize stock analysis engine and transit system
-stock_engine = StockAnalysisEngine()
+# Initialize transit system
 transits = PlanetaryTransits()
 
-# Styling (same as before)
+# Styling
 def apply_custom_css():
     st.markdown("""
     <style>
@@ -725,13 +364,6 @@ def create_sidebar():
         confidence_threshold = st.slider("Min Confidence", 0.0, 1.0, 0.6, 0.05)
         time_resolution = st.selectbox("Time Resolution", ["15 minutes", "30 minutes", "1 hour"])
     
-    with st.sidebar.expander("⚖️ Aspect Weights", expanded=False):
-        st.markdown("**Adjust planetary aspect influences:**")
-        aspect_weights = {}
-        for aspect in ["Trine", "Sextile", "Conjunction", "Opposition", "Square"]:
-            default_val = scoring.aspect_weights.get(aspect, 1.0)
-            aspect_weights[aspect] = st.slider(f"{aspect}", -2.0, 2.0, float(default_val), 0.1)
-    
     with st.sidebar.expander("📥 Export & Sharing", expanded=False):
         export_format = st.selectbox("Export Format", ["Excel (.xlsx)", "CSV (.csv)", "JSON (.json)"])
         include_charts = st.checkbox("Include Charts", value=True)
@@ -746,421 +378,10 @@ def create_sidebar():
         'sensitivity': sensitivity,
         'confidence_threshold': confidence_threshold,
         'time_resolution': time_resolution,
-        'aspect_weights': aspect_weights,
         'export_format': export_format,
         'include_charts': include_charts,
         'include_transits': include_transits
     }
-
-def analyze_sectors_with_transits(user_config, time_hour=12):
-    """Enhanced sector analysis with planetary transit filtering"""
-    results = []
-    date_str = str(user_config['date'])
-    
-    # Get daily transits for filtering
-    daily_transits = transits.generate_daily_transits_enhanced(user_config['date'])
-    
-    # Flatten all sectors
-    all_sectors = {}
-    for category, sector_dict in config.SECTORS.items():
-        all_sectors.update(sector_dict)
-    
-    for sector_name, stocks in all_sectors.items():
-        # Base sector analysis
-        analysis = scoring.calculate_sector_score(sector_name, date_str, time_hour)
-        adjusted_score = analysis['score'] * user_config['sensitivity']
-        
-        # Get planetary transit effects for this sector
-        transit_effects = get_sector_transit_effects(sector_name, daily_transits)
-        
-        # Combine base score with transit effects
-        final_score = adjusted_score + transit_effects['score_adjustment']
-        
-        results.append({
-            'Sector': sector_name,
-            'Net Score': round(final_score, 2),
-            'Base Score': round(adjusted_score, 2),
-            'Transit Adjustment': round(transit_effects['score_adjustment'], 2),
-            'Avg/Stock': round(final_score / len(stocks), 2),
-            'Trend': scoring.get_trend_direction(final_score),
-            'Signal Strength': scoring.get_signal_strength(final_score),
-            'Confidence': analysis['confidence'],
-            'Risk Level': analysis['risk_level'],
-            'Stocks Count': len(stocks),
-            'Top Stocks': ', '.join(stocks[:3]),
-            'Emoji': scoring.get_trend_emoji(final_score),
-            'Affecting Transits': transit_effects['count'],
-            'Effect Duration': transit_effects['max_duration'],
-            'Primary Planet': transit_effects['primary_planet']
-        })
-    
-    return sorted(results, key=lambda x: x['Net Score'], reverse=True)
-
-def get_sector_transit_effects(sector_name: str, daily_transits: pd.DataFrame) -> Dict:
-    """Calculate how planetary transits affect a specific sector"""
-    effects = {
-        'score_adjustment': 0.0,
-        'count': 0,
-        'max_duration': 0,
-        'primary_planet': 'None'
-    }
-    
-    if daily_transits.empty:
-        return effects
-    
-    planets_affecting = {}
-    
-    for _, transit in daily_transits.iterrows():
-        sector_effect = 0.0
-        
-        # Check if sector is mentioned in transit effects
-        if sector_name in transit.get("Bullish Sectors", ""):
-            sector_effect = abs(transit["Score"]) * 0.8
-            effects['count'] += 1
-        elif sector_name in transit.get("Bearish Sectors", ""):
-            sector_effect = -abs(transit["Score"]) * 0.8
-            effects['count'] += 1
-        elif sector_name in transit.get("Neutral Sectors", ""):
-            sector_effect = transit["Score"] * 0.3
-            effects['count'] += 1
-        
-        if sector_effect != 0:
-            effects['score_adjustment'] += sector_effect
-            effects['max_duration'] = max(effects['max_duration'], transit.get("Effect Duration (Days)", 0))
-            
-            # Track planets
-            planet_a = transit.get("Planet A", "")
-            planet_b = transit.get("Planet B", "")
-            
-            for planet in [planet_a, planet_b]:
-                if planet:
-                    planets_affecting[planet] = planets_affecting.get(planet, 0) + abs(sector_effect)
-    
-    # Find primary affecting planet
-    if planets_affecting:
-        effects['primary_planet'] = max(planets_affecting, key=planets_affecting.get)
-    
-    return effects
-
-def generate_weekly_analysis_enhanced(user_config):
-    """Enhanced weekly analysis with planetary transit filtering"""
-    weekly_data = []
-    start_date = user_config['date']
-    
-    # Get week dates
-    start_of_week = start_date - timedelta(days=start_date.weekday())
-    
-    for i in range(7):
-        day_date = start_of_week + timedelta(days=i)
-        day_config = {**user_config, 'date': day_date}
-        day_results = analyze_sectors_with_transits(day_config, time_hour=12)
-        
-        if day_results:
-            # Separate bullish and bearish sectors by transit effects
-            bullish_sectors = [r for r in day_results if r['Net Score'] > 0 and r['Affecting Transits'] > 0]
-            bearish_sectors = [r for r in day_results if r['Net Score'] < 0 and r['Affecting Transits'] > 0]
-            
-            top_sector = day_results[0]
-            bottom_sector = day_results[-1]
-            
-            # Calculate market sentiment based on transit-affected sectors
-            bullish_transit_count = len(bullish_sectors)
-            bearish_transit_count = len(bearish_sectors)
-            
-            weekly_data.append({
-                'Date': day_date.strftime('%Y-%m-%d'),
-                'Day': day_date.strftime('%A'),
-                'Top Bullish': top_sector['Sector'],
-                'Bullish Score': top_sector['Net Score'],
-                'Bullish Transits': bullish_transit_count,
-                'Top Bearish': bottom_sector['Sector'],
-                'Bearish Score': bottom_sector['Net Score'],
-                'Bearish Transits': bearish_transit_count,
-                'Market Sentiment': 'Bullish' if bullish_transit_count > bearish_transit_count else 'Bearish',
-                'Volatility': round(abs(top_sector['Net Score'] - bottom_sector['Net Score']), 2),
-                'Primary Planet': top_sector['Primary Planet'],
-                'Max Effect Duration': top_sector['Effect Duration']
-            })
-    
-    return pd.DataFrame(weekly_data)
-
-def generate_monthly_analysis_enhanced(user_config):
-    """Enhanced monthly analysis with planetary transit filtering"""
-    monthly_data = []
-    
-    # Get month boundaries
-    first_day = user_config['date'].replace(day=1)
-    if first_day.month == 12:
-        last_day = first_day.replace(year=first_day.year + 1, month=1) - timedelta(days=1)
-    else:
-        last_day = first_day.replace(month=first_day.month + 1) - timedelta(days=1)
-    
-    current_date = first_day
-    while current_date <= last_day:
-        day_config = {**user_config, 'date': current_date}
-        day_results = analyze_sectors_with_transits(day_config, time_hour=12)
-        
-        if day_results:
-            # Filter only transit-affected sectors
-            transit_affected = [r for r in day_results if r['Affecting Transits'] > 0]
-            
-            if transit_affected:
-                avg_score = sum(r['Net Score'] for r in transit_affected) / len(transit_affected)
-                top_sector = transit_affected[0]
-                
-                # Count major transits (effect duration > 7 days)
-                major_transits = len([r for r in transit_affected if r['Effect Duration'] > 7])
-                
-                monthly_data.append({
-                    'Date': current_date.strftime('%Y-%m-%d'),
-                    'Day': current_date.day,
-                    'Average Score': round(avg_score, 2),
-                    'Top Sector': top_sector['Sector'],
-                    'Top Score': top_sector['Net Score'],
-                    'Market Bias': 'Bullish' if avg_score > 0 else 'Bearish',
-                    'Transit Affected Sectors': len(transit_affected),
-                    'Major Transits': major_transits,
-                    'Primary Planet': top_sector['Primary Planet'],
-                    'Max Duration': max(r['Effect Duration'] for r in transit_affected)
-                })
-            else:
-                # Day with minimal transit effects
-                monthly_data.append({
-                    'Date': current_date.strftime('%Y-%m-%d'),
-                    'Day': current_date.day,
-                    'Average Score': 0.0,
-                    'Top Sector': 'None',
-                    'Top Score': 0.0,
-                    'Market Bias': 'Neutral',
-                    'Transit Affected Sectors': 0,
-                    'Major Transits': 0,
-                    'Primary Planet': 'None',
-                    'Max Duration': 0
-                })
-        
-        current_date += timedelta(days=1)
-    
-    return pd.DataFrame(monthly_data)
-
-def create_sector_filter_interface():
-    """Create filtering interface for sectors by planetary transits"""
-    st.markdown("### 🔍 Filter Sectors by Planetary Transits")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        trend_filter = st.multiselect(
-            "📈 Trend Filter",
-            ["Bullish", "Bearish", "Neutral"],
-            default=["Bullish", "Bearish"]
-        )
-    
-    with col2:
-        planet_filter = st.multiselect(
-            "🪐 Primary Planet",
-            ["Jupiter", "Venus", "Mars", "Mercury", "Saturn", "Sun", "Moon", "Rahu", "Ketu"],
-            default=[]
-        )
-    
-    with col3:
-        duration_filter = st.slider(
-            "⏰ Min Effect Duration (Days)",
-            0, 30, 0
-        )
-    
-    return {
-        'trend_filter': trend_filter,
-        'planet_filter': planet_filter,
-        'duration_filter': duration_filter
-    }
-
-def apply_sector_filters(sector_results: List[Dict], filters: Dict) -> List[Dict]:
-    """Apply filters to sector results"""
-    filtered_results = sector_results.copy()
-    
-    # Apply trend filter
-    if filters['trend_filter']:
-        filtered_results = [r for r in filtered_results if r['Trend'] in filters['trend_filter']]
-    
-    # Apply planet filter
-    if filters['planet_filter']:
-        filtered_results = [r for r in filtered_results if r['Primary Planet'] in filters['planet_filter']]
-    
-    # Apply duration filter
-    if filters['duration_filter'] > 0:
-        filtered_results = [r for r in filtered_results if r['Effect Duration'] >= filters['duration_filter']]
-    
-    return filtered_results
-
-def create_stock_analysis_interface(sector_results: List[Dict], user_config: Dict):
-    """Create interface for detailed stock analysis within sectors"""
-    st.markdown("### 🎯 Stock-Level Transit Analysis")
-    
-    if not sector_results:
-        st.warning("No sectors available for stock analysis.")
-        return
-    
-    # Sector selection
-    sector_names = [r['Sector'] for r in sector_results if r['Affecting Transits'] > 0]
-    
-    if not sector_names:
-        st.info("No sectors with active planetary transits found.")
-        return
-    
-    selected_sector = st.selectbox(
-        "📊 Select Sector for Stock Analysis",
-        sector_names,
-        help="Choose a sector to see individual stock analysis"
-    )
-    
-    if selected_sector:
-        # Get sector data
-        sector_data = next(r for r in sector_results if r['Sector'] == selected_sector)
-        
-        # Display sector overview
-        st.markdown(f"#### 🏭 {selected_sector} Sector Overview")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Sector Score", f"{sector_data['Net Score']:.2f}")
-        with col2:
-            st.metric("Active Transits", sector_data['Affecting Transits'])
-        with col3:
-            st.metric("Effect Duration", f"{sector_data['Effect Duration']} days")
-        with col4:
-            st.metric("Primary Planet", sector_data['Primary Planet'])
-        
-        # Get sector-specific transits
-        sector_transits = transits.get_sector_specific_transits(user_config['date'], selected_sector)
-        
-        if not sector_transits.empty:
-            st.markdown("#### 🪐 Transits Affecting This Sector")
-            st.dataframe(sector_transits, use_container_width=True)
-            
-            # Get stocks in this sector
-            all_sectors = {}
-            for category, sector_dict in config.SECTORS.items():
-                all_sectors.update(sector_dict)
-            
-            sector_stocks = all_sectors.get(selected_sector, [])
-            
-            if sector_stocks:
-                st.markdown("#### 📈 Individual Stock Analysis")
-                
-                # Stock selection
-                selected_stock = st.selectbox(
-                    "🎯 Select Stock for Detailed Analysis",
-                    sector_stocks,
-                    help="Choose a stock to see detailed timing analysis"
-                )
-                
-                if selected_stock:
-                    # Analyze the selected stock
-                    stock_analysis = stock_engine.analyze_stock_transits(
-                        selected_stock, 
-                        sector_transits, 
-                        user_config['date'], 
-                        days_ahead=7
-                    )
-                    
-                    # Display stock analysis
-                    st.markdown(f"##### 📊 {selected_stock} - Detailed Transit Analysis")
-                    
-                    # Stock metrics
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Bullish Periods", len(stock_analysis["bullish_periods"]))
-                    with col2:
-                        st.metric("Bearish Periods", len(stock_analysis["bearish_periods"]))
-                    with col3:
-                        st.metric("Total Effect Days", stock_analysis["total_effect_days"])
-                    with col4:
-                        peak_time = stock_analysis["peak_bullish_time"] or stock_analysis["peak_bearish_time"] or "None"
-                        st.metric("Peak Impact Time", peak_time)
-                    
-                    # Bullish periods
-                    if stock_analysis["bullish_periods"]:
-                        st.markdown("##### 🟢 Bullish Time Windows")
-                        for period in stock_analysis["bullish_periods"]:
-                            st.markdown(f"""
-                            <div class="alert-box alert-success">
-                                <strong>⏰ {period['time']}</strong><br>
-                                <strong>Score:</strong> +{period['score']:.2f} | 
-                                <strong>Strength:</strong> {period['strength']} | 
-                                <strong>Duration:</strong> {period['duration_days']} days<br>
-                                <strong>Planets:</strong> {period['planets']}
-                            </div>
-                            """, unsafe_allow_html=True)
-                    
-                    # Bearish periods
-                    if stock_analysis["bearish_periods"]:
-                        st.markdown("##### 🔴 Bearish Time Windows")
-                        for period in stock_analysis["bearish_periods"]:
-                            st.markdown(f"""
-                            <div class="alert-box alert-danger">
-                                <strong>⏰ {period['time']}</strong><br>
-                                <strong>Score:</strong> {period['score']:.2f} | 
-                                <strong>Strength:</strong> {period['strength']} | 
-                                <strong>Duration:</strong> {period['duration_days']} days<br>
-                                <strong>Planets:</strong> {period['planets']}
-                            </div>
-                            """, unsafe_allow_html=True)
-                    
-                    # Neutral periods
-                    if stock_analysis["neutral_periods"]:
-                        st.markdown("##### ⚪ Neutral Time Windows")
-                        for period in stock_analysis["neutral_periods"]:
-                            st.markdown(f"""
-                            <div class="alert-box" style="background-color: #f9fafb; border-left-color: #6b7280;">
-                                <strong>⏰ {period['time']}</strong><br>
-                                <strong>Score:</strong> {period['score']:.2f} | 
-                                <strong>Strength:</strong> {period['strength']} | 
-                                <strong>Duration:</strong> {period['duration_days']} days<br>
-                                <strong>Planets:</strong> {period['planets']}
-                            </div>
-                            """, unsafe_allow_html=True)
-                    
-                    # Next major event
-                    if stock_analysis["next_major_event"]:
-                        event = stock_analysis["next_major_event"]
-                        st.markdown("##### 🎯 Next Major Event")
-                        event_class = "alert-success" if event["score"] > 0 else "alert-danger"
-                        st.markdown(f"""
-                        <div class="alert-box {event_class}">
-                            <strong>📅 Next Significant Movement</strong><br>
-                            <strong>Time:</strong> {event['time']}<br>
-                            <strong>Expected Impact:</strong> {event['score']:.2f}<br>
-                            <strong>Duration:</strong> {event['duration_days']} days<br>
-                            <strong>Planets:</strong> {event['planets']}
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    # Export stock analysis
-                    if st.button(f"📥 Export {selected_stock} Analysis"):
-                        # Create export data
-                        export_data = {
-                            "Stock": selected_stock,
-                            "Sector": selected_sector,
-                            "Analysis_Date": str(user_config['date']),
-                            "Bullish_Periods": stock_analysis["bullish_periods"],
-                            "Bearish_Periods": stock_analysis["bearish_periods"],
-                            "Neutral_Periods": stock_analysis["neutral_periods"],
-                            "Peak_Bullish_Time": stock_analysis["peak_bullish_time"],
-                            "Peak_Bearish_Time": stock_analysis["peak_bearish_time"],
-                            "Total_Effect_Days": stock_analysis["total_effect_days"],
-                            "Next_Major_Event": stock_analysis["next_major_event"]
-                        }
-                        
-                        st.download_button(
-                            "💾 Download Stock Analysis",
-                            json.dumps(export_data, indent=2),
-                            f"{selected_stock}_transit_analysis_{user_config['date']}.json",
-                            "application/json"
-                        )
-            else:
-                st.info(f"No stocks found in {selected_sector} sector configuration.")
-        else:
-            st.info(f"No planetary transits affecting {selected_sector} sector today.")
 
 # Analysis Functions
 def analyze_sectors_comprehensive(user_config, time_hour=12):
@@ -1938,8 +1159,6 @@ def main():
                 st.markdown(f"### 📅 Next {prediction_days} Days - Major Transits")
                 
                 for i, transit in enumerate(filtered_predictions[:20]):  # Show top 20
-                    impact_class = "alert-danger" if transit['Impact'] == "High" else "alert-warning" if transit['Impact'] == "Medium" else "alert-success"
-                    
                     st.markdown(f"""
                     <div class="transit-card">
                         <strong>📅 {transit['Date']} at {transit['Time']}</strong><br>
@@ -1983,3 +1202,100 @@ def main():
                 {"Parameter": "Time Resolution", "Value": user_config['time_resolution']}
             ])
             st.dataframe(config_df, use_container_width=True)
+            
+            # System information
+            st.markdown("#### ℹ️ System Information")
+            st.markdown(f"""
+            - **🪐 Plotly Charts:** {'✅ Available' if PLOTLY_AVAILABLE else '❌ Not Available'}
+            - **⏰ Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            - **🔢 Version:** 2.0.0 Complete Edition
+            - **📊 Sectors Loaded:** {sum(len(s) for category in config.SECTORS.values() for s in category.values())}
+            - **🪐 Transit Engine:** Active
+            - **📈 Intraday Analysis:** Available
+            - **📅 Multi-timeframe:** Available
+            """)
+            
+            # Performance metrics
+            if sector_results:
+                st.markdown("#### 📊 Analysis Performance")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Sectors Analyzed", len(sector_results))
+                with col2:
+                    bullish_sectors = len([s for s in sector_results if s['Net Score'] > 0])
+                    st.metric("Bullish Sectors", f"{bullish_sectors}/{len(sector_results)}")
+                with col3:
+                    avg_confidence = sum(s['Confidence'] for s in sector_results) / len(sector_results)
+                    st.metric("Average Confidence", f"{avg_confidence:.1%}")
+            
+            # Export all data
+            st.markdown("#### 📥 Export Complete Analysis")
+            if st.button("📊 Export All Data", type="primary"):
+                export_data = {
+                    'sectors': pd.DataFrame(sector_results),
+                    'daily_transits': daily_transits,
+                    'configuration': config_df
+                }
+                
+                if user_config['export_format'] == "Excel (.xlsx)":
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        for sheet_name, df in export_data.items():
+                            df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    
+                    st.download_button(
+                        "💾 Download Excel Report",
+                        buffer.getvalue(),
+                        f"vedic_complete_analysis_{user_config['date']}.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                
+                elif user_config['export_format'] == "JSON (.json)":
+                    json_data = {
+                        'sectors': export_data['sectors'].to_dict('records'),
+                        'daily_transits': export_data['daily_transits'].to_dict('records'),
+                        'configuration': export_data['configuration'].to_dict('records'),
+                        'export_timestamp': datetime.now().isoformat()
+                    }
+                    
+                    st.download_button(
+                        "💾 Download JSON Data",
+                        json.dumps(json_data, indent=2),
+                        f"vedic_complete_analysis_{user_config['date']}.json",
+                        "application/json"
+                    )
+                
+                else:  # CSV
+                    csv_data = export_data['sectors'].to_csv(index=False)
+                    st.download_button(
+                        "💾 Download CSV",
+                        csv_data,
+                        f"vedic_sectors_analysis_{user_config['date']}.csv",
+                        "text/csv"
+                    )
+            
+            # Quick setup
+            if not PLOTLY_AVAILABLE:
+                st.info("💡 **Quick Setup:** For enhanced charts, run: `pip install plotly`")
+            
+            # Data management
+            st.markdown("#### 🔄 Data Management")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🔄 Refresh All Data"):
+                    st.rerun()
+            
+            with col2:
+                if st.button("📊 Recalculate Analysis"):
+                    st.success("Analysis will refresh on next interaction.")
+    
+    except Exception as e:
+        st.error(f"Application error: {str(e)}")
+        st.info("Please try refreshing the page or adjusting your settings.")
+        st.markdown("**Error Details:**")
+        st.code(str(e))
+
+if __name__ == "__main__":
+    main()
