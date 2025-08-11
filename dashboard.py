@@ -352,38 +352,66 @@ def style_sector_table(df, current_sector=None):
         return [f'background-color: {base}' if base else '' for _ in row]
     return df.style.apply(color_row, axis=1)
 
-def build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t, end_t):
+
+
+def proximity_weight(row):
+    """Higher weight when aspect is near exact; KP events get a fixed premium."""
+    if row.get("Aspect") == "KP (Moon Star/Sub change)":
+        return 1.2  # KP premium
+    exact = row.get("Exact°")
+    if exact in (0, 60, 90, 120, 180):
+        # already scored via score_event; we don't have raw offset here,
+        # so give a modest base weight; Moon involvement is implicitly in score_event
+        return 1.0
+    return 1.0
+
+def sector_scores_for_window(sector_syms, asp_df, kp_df, tz_in, date_in, start_t, end_t, asset_class):
     tz = pytz.timezone(tz_in)
     start_local = tz.localize(datetime.combine(date_in, start_t))
     end_local = tz.localize(datetime.combine(date_in, end_t))
     if end_local <= start_local: end_local = end_local + timedelta(days=1)
 
-    dfA = asp_timeline_df.copy()
+    dfA = asp_df.copy()
     dfA["TimeLocal"] = pd.to_datetime(dfA["Time"], format="%Y-%m-%d %H:%M").apply(lambda x: tz.localize(x))
     dfA = dfA[(dfA["TimeLocal"] >= start_local) & (dfA["TimeLocal"] < end_local)].copy()
-    dfK = kp_moon_df.copy()
+    dfK = kp_df.copy()
     dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
     dfK = dfK[(dfK["DT"] >= start_local) & (dfK["DT"] < end_local)].copy()
 
+    # Precompute numeric scores for aspect rows
+    if not dfA.empty:
+        dfA["Score"] = [score_event(r, asset_class, DEFAULT_RULES) for _, r in dfA.iterrows()]
+        dfA["w"] = [1.0]*len(dfA)  # we don't know exact proximity here, keep 1.0
+    else:
+        dfA["Score"] = []; dfA["w"] = []
+    # KP-only rows
+    if not dfK.empty:
+        dfK["Score"] = [score_kp_only(r, asset_class, DEFAULT_RULES) for _, r in dfK.iterrows()]
+        dfK["w"] = [1.2]*len(dfK)  # KP premium
+        dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
+    else:
+        dfK["Score"] = []; dfK["w"] = []
+
+    # Combined score stream (no need to duplicate per symbol; we reuse same astro stream for all symbols in sector)
+    combined_scores = list(dfA["Score"]*dfA["w"]) + list(dfK["Score"]*dfK["w"])
+
+    # Sector aggregate: sum of signed scores, normalized per symbol
+    if len(sector_syms) == 0:
+        return 0.0, 0.0, 0.0
+    total_score = float(sum(combined_scores))
+    avg_per_symbol = total_score / float(len(sector_syms))
+    abs_total = float(sum(abs(s) for s in combined_scores)) or 1.0
+    confidence = min(1.0, abs(total_score) / abs_total)
+    return total_score, avg_per_symbol, confidence
+
+def build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t, end_t):
     rows = []
     for sec, syms in sectors.items():
         acl = "BANKNIFTY" if sec == "BANKNIFTY" else "NIFTY"
-        bull = bear = neu = 0
-        for sym in syms:
-            sA = [score_event(r, acl, DEFAULT_RULES) for _, r in dfA.iterrows()]
-            sigA = [classify_score(s, DEFAULT_RULES) for s in sA]
-            if not dfK.empty:
-                sK = [score_kp_only(r, acl, DEFAULT_RULES) for _, r in dfK.iterrows()]
-                sigK = [classify_score(s, DEFAULT_RULES) for s in sK]
-            else:
-                sigK = []
-            signals = sigA + sigK
-            bull += sum(1 for x in signals if x=="Bullish")
-            bear += sum(1 for x in signals if x=="Bearish")
-            neu  += sum(1 for x in signals if x=="Neutral")
-        rows.append({"Sector": sec, "Bullish": bull, "Bearish": bear, "Neutral": neu, "Net": bull-bear})
-    df = pd.DataFrame(rows).sort_values(["Net","Bullish"], ascending=[False,False]).reset_index(drop=True)
-    df["Trend"] = df.apply(lambda r: classify_net(r["Bullish"], r["Bearish"]), axis=1)
+        total, avg_ps, conf = sector_scores_for_window(syms, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t, end_t, acl)
+        trend = "Bullish" if total > 0.25 else ("Bearish" if total < -0.25 else "Neutral")
+        rows.append({"Sector": sec, "NetScore": round(total,2), "Avg/Stock": round(avg_ps,2), "Confidence": round(conf,2), "Trend": trend})
+    df = pd.DataFrame(rows).sort_values(["NetScore","Avg/Stock","Confidence"], ascending=[False,False,False]).reset_index(drop=True)
     return df
 
 # ---------------- UI ----------------
@@ -445,7 +473,7 @@ with tabs[0]:
         end_t2 = st.time_input("End Time", value=dtime(15,30), key="end_time_sector")
 
     rank_df = build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t2, end_t2)
-    st.markdown("**All sectors ranking (Net = Bullish - Bearish):**")
+    st.markdown("**All sectors ranking (by NetScore)**")
     st.dataframe(style_sector_table(rank_df, current_sector=sector), use_container_width=True)
     if not rank_df.empty:
         st.metric("Top Bullish Sector", f"{rank_df.iloc[0]['Sector']} (Net {int(rank_df.iloc[0]['Net'])})")
