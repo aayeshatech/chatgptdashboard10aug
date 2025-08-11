@@ -71,6 +71,16 @@ DEFAULT_RULES = {
     "thresholds": {"bullish": 1.0, "bearish": -1.0}
 }
 
+# Safe default rules reference used throughout (avoids NameError on first render)
+RULES_CURRENT = DEFAULT_RULES
+def get_rules():
+    global RULES_CURRENT
+    try:
+        return RULES_CURRENT
+    except Exception:
+        return DEFAULT_RULES
+
+
 # -------------- Helpers --------------
 def safe_float(x, default=None):
     try: return float(x)
@@ -534,8 +544,8 @@ def render_cards(cards, header):
     for c in cards:
         color = "#19c37d" if "BULLISH" in c["impact"] else ("#f7766d" if "BEARISH" in c["impact"] else "#f5a623")
         st.markdown(f"""
-<div style='border:1px solid #333;padding:12px;border-radius:8px;background:#0e1117;margin-bottom:8px;'>
-  <div style='font-weight:600;color:#8ab4ff'>{c['title']}</div>
+<div style='border:1px solid #e5e7eb;padding:12px;border-radius:8px;background:#f7faff;margin-bottom:8px;'>
+  <div style='font-weight:600;color:#1d4ed8'>{c['title']}</div>
   <div><strong>Event:</strong> {c['event']}</div>
   <div><strong>Impact:</strong> <span style='color:{color};font-weight:700'>{c['impact']}</span></div>
   <div><strong>Affected Sector:</strong> {c['sector']} &nbsp; <span style='opacity:.7'>(NetScore {c['netscore']})</span></div>
@@ -769,7 +779,7 @@ with tabs[1]:
         rows = []
         acl = "BANKNIFTY" if sector == "BANKNIFTY" else "NIFTY"
         for sym in symbols:
-            combined = score_event_local(dfA.copy(), dfK.copy(), acl, sym, rules_current)
+            combined = score_event_local(dfA.copy(), dfK.copy(), acl, sym, get_rules())
             rows.append({"Symbol": sym, "Bullish": int((combined['Signal']=='Bullish').sum()),
                          "Bearish": int((combined['Signal']=='Bearish').sum()),
                          "Neutral": int((combined['Signal']=='Neutral').sum())})
@@ -777,7 +787,7 @@ with tabs[1]:
         st.markdown("**Sector overview (counts in selected time window):**")
         st.dataframe(overview, use_container_width=True)
         st.markdown("**Detailed signals for selected symbol:**")
-        detail = score_event_local(dfA.copy(), dfK.copy(), acl, symbol_sec, rules_current).sort_values("Time")
+        detail = score_event_local(dfA.copy(), dfK.copy(), acl, symbol_sec, get_rules()).sort_values("Time")
         st.dataframe(style_signal_table(detail), use_container_width=True)
     else:
         st.info("No symbols configured for this sector.")
@@ -807,16 +817,16 @@ with tabs[2]:
     dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
     dfK = dfK[(dfK["DT"] >= start_local) & (dfK["DT"] < end_local)].copy()
 
-    scoresA = [score_event(r, asset_class, rules_current) for _, r in dfA.iterrows()]
+    scoresA = [score_event(r, asset_class, get_rules()) for _, r in dfA.iterrows()]
     dfA["Score"] = scoresA
-    dfA["Signal"] = [classify_score(s, rules_current) for s in scoresA]
+    dfA["Signal"] = [classify_score(s, get_rules()) for s in scoresA]
     dfA["Symbol"] = symbol.upper()
     view_colsA = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B","Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
     dfA_view = dfA[view_colsA]
 
     if not dfK.empty:
-        dfK["Score"] = [score_kp_only(r, asset_class, rules_current) for _, r in dfK.iterrows()]
-        dfK["Signal"] = [classify_score(s, rules_current) for s in dfK["Score"]]
+        dfK["Score"] = [score_kp_only(r, asset_class, get_rules()) for _, r in dfK.iterrows()]
+        dfK["Signal"] = [classify_score(s, get_rules()) for s in dfK["Score"]]
         dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
         dfK_view = dfK.rename(columns={"Star Lord":"Moon Star Lord@Exact","Sub Lord":"Moon Sub-Lord@Exact","Nakshatra":"Moon Nakshatra@Exact"})
         dfK_view["Aspect"] = "KP (Moon Star/Sub change)"
@@ -976,10 +986,10 @@ with tabs[4]:
         acl = "BANKNIFTY" if sector_pick == "BANKNIFTY" else "NIFTY"
         rows = []
         for sym in symbols_w:
-            sA = [score_event(r, acl, rules_current) for _, r in dfA.iterrows()]
-            sK = [score_kp_only(r, acl, rules_current) for _, r in dfK.iterrows()] if not dfK.empty else []
-            sigA = [classify_score(s, rules_current) for s in sA]
-            sigK = [classify_score(s, rules_current) for s in sK]
+            sA = [score_event(r, acl, get_rules()) for _, r in dfA.iterrows()]
+            sK = [score_kp_only(r, acl, get_rules()) for _, r in dfK.iterrows()] if not dfK.empty else []
+            sigA = [classify_score(s, get_rules()) for s in sA]
+            sigK = [classify_score(s, get_rules()) for s in sK]
             signals = sigA + sigK
             rows.append({"Symbol": sym, "Bullish": signals.count("Bullish"), "Bearish": signals.count("Bearish"), "Neutral": signals.count("Neutral")})
         sym_df = pd.DataFrame(rows).sort_values(["Bullish","Bearish"], ascending=[False,True])
@@ -1120,10 +1130,10 @@ with tabs[5]:
         acl = "BANKNIFTY" if sector_pick_m == "BANKNIFTY" else "NIFTY"
         rows = []
         for sym in symbols_m:
-            sA = [score_event(r, acl, rules_current) for _, r in dfA.iterrows()]
-            sK = [score_kp_only(r, acl, rules_current) for _, r in dfK.iterrows()] if not dfK.empty else []
-            sigA = [classify_score(s, rules_current) for s in sA]
-            sigK = [classify_score(s, rules_current) for s in sK]
+            sA = [score_event(r, acl, get_rules()) for _, r in dfA.iterrows()]
+            sK = [score_kp_only(r, acl, get_rules()) for _, r in dfK.iterrows()] if not dfK.empty else []
+            sigA = [classify_score(s, get_rules()) for s in sA]
+            sigK = [classify_score(s, get_rules()) for s in sK]
             signals = sigA + sigK
             rows.append({"Symbol": sym, "Bullish": signals.count("Bullish"), "Bearish": signals.count("Bearish"), "Neutral": signals.count("Neutral")})
         sym_df = pd.DataFrame(rows).sort_values(["Bullish","Bearish"], ascending=[False,True])
