@@ -1,8 +1,6 @@
 
 # astro_transit_app.py
-# Streamlit app: Vedic Sidereal Astro Transit + Aspects + Moon Timeline (+ Ingress + KP Sub-lord Timeline)
-# - No Telegram output; everything is on-screen.
-# - Robust ephemeris handling: MOSEPH fallback + calc_ut normalization.
+# Vedic Sidereal Transits – Defensive version (no Telegram).
 
 import math
 from datetime import datetime, timedelta, timezone
@@ -38,58 +36,15 @@ NAKSHATRAS = [
     "Purva Bhadrapada","Uttara Bhadrapada","Revati"
 ]
 NAK_DEG = 360.0 / 27.0
-
 ASPECTS = {0:"Conjunction",60:"Sextile",90:"Square",120:"Trine",180:"Opposition"}
+USE_MOSEPH = False
 
-# Vimshottari dasha order & years
-DASHA_ORDER = ["Ketu","Venus","Sun","Moon","Mars","Rahu","Jupiter","Saturn","Mercury"]
-DASHA_YEARS = {"Ketu":7,"Venus":20,"Sun":6,"Moon":10,"Mars":7,"Rahu":18,"Jupiter":16,"Saturn":19,"Mercury":17}
-TOTAL_YEARS = 120.0
-
-# Nakshatra lords mapping
-NAK_LORD = {
-    "Ashwini":"Ketu","Bharani":"Venus","Krittika":"Sun","Rohini":"Moon","Mrigashira":"Mars","Ardra":"Rahu",
-    "Punarvasu":"Jupiter","Pushya":"Saturn","Ashlesha":"Mercury",
-    "Magha":"Ketu","Purva Phalguni":"Venus","Uttara Phalguni":"Sun",
-    "Hasta":"Moon","Chitra":"Mars","Swati":"Rahu","Vishakha":"Jupiter","Anuradha":"Saturn","Jyeshtha":"Mercury",
-    "Mula":"Ketu","Purva Ashadha":"Venus","Uttara Ashadha":"Sun",
-    "Shravana":"Moon","Dhanishta":"Mars","Shatabhisha":"Rahu","Purva Bhadrapada":"Jupiter","Uttara Bhadrapada":"Saturn","Revati":"Mercury"
-}
-
-# ---- Robust Swiss Ephemeris flags ----
-USE_MOSEPH = False  # set True if we detect missing ephemeris files
-
-def _calc_ut_standardized(jd_ut, body, use_moseph=False):
-    """Call swe.calc_ut and normalize return shape across versions.
-    Returns (lon, lat, dist, speed_lon).
-    """
-    flag_base = swe.FLG_MOSEPH if use_moseph else swe.FLG_SWIEPH
-    flag = flag_base | swe.FLG_SPEED
-    out = swe.calc_ut(jd_ut, body, flag)
-    if isinstance(out, (list, tuple)):
-        if len(out) >= 4:
-            lon, lat, dist, speed_lon = out[0], out[1], out[2], out[3]
-        elif len(out) == 3:
-            lon, lat, dist = out
-            speed_lon = 0.0
-        else:
-            vals = list(out) + [0.0, 0.0, 0.0, 0.0]
-            lon, lat, dist, speed_lon = vals[0], vals[1], vals[2], vals[3]
-    else:
-        lon = getattr(out, 'longitude', 0.0)
-        lat = getattr(out, 'latitude', 0.0)
-        dist = getattr(out, 'distance', 1.0)
-        speed_lon = getattr(out, 'longitude_speed', 0.0)
-    return float(lon), float(lat), float(dist), float(speed_lon)
-
-def _try_calc_ut(jd_ut, body):
-    """Try SWIEPH, then fallback to MOSEPH (built-in), and normalize output."""
-    global USE_MOSEPH
+# ---------- helpers ----------
+def safe_float(x, default=None):
     try:
-        return _calc_ut_standardized(jd_ut, body, use_moseph=USE_MOSEPH)
+        return float(x)
     except Exception:
-        USE_MOSEPH = True
-        return _calc_ut_standardized(jd_ut, body, use_moseph=True)
+        return default
 
 def normalize_angle(a):
     a = a % 360.0
@@ -97,6 +52,8 @@ def normalize_angle(a):
     return a
 
 def min_angle_diff(a, b):
+    if a is None or b is None:
+        return None
     d = abs(normalize_angle(a) - normalize_angle(b))
     return d if d <= 180 else 360 - d
 
@@ -130,15 +87,60 @@ def to_local(dt_utc, tzname):
 def julday_from_dt(dt_utc):
     return swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute/60 + dt_utc.second/3600)
 
+def _extract_calc_array(out):
+    """Handle forms like: (xx,), (xx, ret), (ret, xx), or flat sequences. Return a list."""
+    if isinstance(out, (list, tuple)):
+        if len(out) == 2 and isinstance(out[0], (list, tuple)) and not isinstance(out[1], (list, tuple)):
+            # (xx, ret/err)
+            return list(out[0])
+        if len(out) == 2 and isinstance(out[1], (list, tuple)) and not isinstance(out[0], (list, tuple)):
+            # (ret/err, xx)
+            return list(out[1])
+        if len(out) == 1 and isinstance(out[0], (list, tuple)):
+            return list(out[0])
+        return list(out)
+    # unknown type; try attributes
+    possible = []
+    for k in ("longitude","latitude","distance","longitude_speed","lat_speed","dist_speed"):
+        if hasattr(out, k):
+            possible.append(getattr(out, k))
+    return possible if possible else [None, None, None, None]
+
+def _calc_ut_standardized(jd_ut, body, use_moseph=False):
+    flag_base = swe.FLG_MOSEPH if use_moseph else swe.FLG_SWIEPH
+    flag = flag_base | swe.FLG_SPEED
+    out = swe.calc_ut(jd_ut, body, flag)
+    arr = _extract_calc_array(out)
+    # grab first 4 numeric-like values
+    lon = safe_float(arr[0], None) if len(arr) > 0 else None
+    lat = safe_float(arr[1], None) if len(arr) > 1 else None
+    dist = safe_float(arr[2], None) if len(arr) > 2 else None
+    speed_lon = safe_float(arr[3], 0.0) if len(arr) > 3 else 0.0
+    return lon, lat, dist, speed_lon
+
+def _try_calc_ut(jd_ut, body):
+    global USE_MOSEPH
+    lon, lat, dist, speed = _calc_ut_standardized(jd_ut, body, use_moseph=USE_MOSEPH)
+    # if lon is None (bad parse), switch to MOSEPH and retry
+    if lon is None:
+        USE_MOSEPH = True
+        lon, lat, dist, speed = _calc_ut_standardized(jd_ut, body, use_moseph=True)
+    return lon, lat, dist, speed
+
 def sidereal_longitude(body, jd_ut, ayanamsa):
     if body == -1:
         ra = sidereal_longitude(swe.MEAN_NODE, jd_ut, ayanamsa)
         return normalize_angle(ra + 180.0)
     lon, lat, dist, speed = _try_calc_ut(jd_ut, body)
-    ay = swe.get_ayanamsa_ut(jd_ut)  # sidereal conversion (ayanamsa from swe)
+    if lon is None:
+        return None
+    ay = swe.get_ayanamsa_ut(jd_ut)
     return normalize_angle(lon - ay)
 
+# --- core computations ---
 def planet_positions_for_date(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SIDM_LAHIRI):
+    if not SWISSEPH_AVAILABLE:
+        raise RuntimeError("pyswisseph not available")
     swe.set_sid_mode(ayanamsa_mode, 0, 0)
     try:
         swe.set_ephe_path("/usr/share/ephe")
@@ -150,6 +152,9 @@ def planet_positions_for_date(date_local, tzname="Asia/Kolkata", ayanamsa_mode=s
     rows = []
     for name, pid in PLANETS:
         lon = sidereal_longitude(pid, jd, ayanamsa_mode)
+        if lon is None:
+            rows.append({"Planet": name, "Longitude": None, "Sign": "N/A", "Deg°": "N/A", "Nakshatra": "N/A"})
+            continue
         sign, deg_in_sign = ecl_to_sign_deg(lon)
         nak, pada = nakshatra_for(lon)
         rows.append({"Planet": name, "Longitude": round(lon, 4), "Sign": sign,
@@ -157,11 +162,15 @@ def planet_positions_for_date(date_local, tzname="Asia/Kolkata", ayanamsa_mode=s
     return pd.DataFrame(rows)
 
 def detect_aspects(positions, orb_major=3.0, orb_moon=6.0):
+    # work only with rows that have numeric longitude
+    pos = positions[pd.to_numeric(positions["Longitude"], errors="coerce").notna()].reset_index(drop=True)
     aspects = []
-    for i in range(len(positions)):
-        for j in range(i+1, len(positions)):
-            p1 = positions.iloc[i]; p2 = positions.iloc[j]
+    for i in range(len(pos)):
+        for j in range(i+1, len(pos)):
+            p1 = pos.iloc[i]; p2 = pos.iloc[j]
             diff = min_angle_diff(p1["Longitude"], p2["Longitude"])
+            if diff is None: 
+                continue
             for exact, name in ASPECTS.items():
                 orb = orb_moon if ("Moon" in (p1["Planet"], p2["Planet"])) else orb_major
                 if abs(diff - exact) <= orb:
@@ -169,77 +178,12 @@ def detect_aspects(positions, orb_major=3.0, orb_moon=6.0):
                                     "Aspect": name, "Exact°": exact, "Deviation°": round(diff-exact,3)})
     return pd.DataFrame(aspects)
 
-# === KP Sub-lord helpers ===
-def kp_subsequence(start_lord):
-    """Return the 9-planet sequence starting from start_lord following Vimshottari order."""
-    idx = DASHA_ORDER.index(start_lord)
-    return DASHA_ORDER[idx:] + DASHA_ORDER[:idx]
+# --- UI ---
+st.set_page_config(page_title="Vedic Sidereal Transits – Defensive", layout="wide")
+st.title("🪐 Vedic Sidereal Transit Explorer — Safe Mode")
 
-def kp_sublord_of_longitude(lon):
-    """Given a sidereal longitude, compute Nakshatra, Star Lord, Sublord."""
-    nak, pada = nakshatra_for(lon)
-    star_lord = NAK_LORD[nak]
-    seq = kp_subsequence(star_lord)
-    # fraction within nakshatra:
-    within = (normalize_angle(lon) % NAK_DEG) / NAK_DEG  # 0..1
-    # build cumulative fractions by dasha years
-    cum = 0.0
-    for lord in seq:
-        frac = DASHA_YEARS[lord] / TOTAL_YEARS
-        if within < cum + frac:
-            sublord = lord
-            return nak, pada, star_lord, sublord
-        cum += frac
-    # edge case: at the very end
-    return nak, pada, star_lord, seq[-1]
-
-def moon_kp_sublord_timeline(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SIDM_LAHIRI, step_minutes=5):
-    """Timeline of Moon KP sub-lord changes within the day with refined times."""
-    swe.set_sid_mode(ayanamsa_mode, 0, 0)
-    try:
-        swe.set_ephe_path("/usr/share/ephe")
-    except Exception:
-        pass
-
-    start_local = datetime(date_local.year, date_local.month, date_local.day, 0, 0, 0)
-    end_local = start_local + timedelta(days=1)
-    t_utc = to_utc(start_local, tzname); end_utc = to_utc(end_local, tzname)
-
-    def moon_lon(t): return sidereal_longitude(swe.MOON, julday_from_dt(t), ayanamsa_mode)
-
-    events = []
-    cur = t_utc
-    lon0 = moon_lon(cur)
-    nak0, pada0, star0, sub0 = kp_sublord_of_longitude(lon0)
-
-    while cur < end_utc:
-        nxt = cur + timedelta(minutes=step_minutes)
-        lon = moon_lon(nxt)
-        nak, pada, star, sub = kp_sublord_of_longitude(lon)
-        if sub != sub0:
-            # refine change time between cur..nxt
-            lo, hi = cur, nxt
-            for _ in range(24):
-                mid = lo + (hi - lo)/2
-                _, _, _, sub_mid = kp_sublord_of_longitude(moon_lon(mid))
-                if sub_mid == sub0: lo = mid
-                else: hi = mid
-            local_time = to_local(hi, tzname).strftime("%Y-%m-%d %H:%M")
-            events.append({"Time": local_time, "Nakshatra": nak, "Star Lord": star, "Sub-Lord": sub})
-            sub0 = sub
-        cur = nxt
-
-    return pd.DataFrame(events)
-
-# -------- UI --------
-st.set_page_config(page_title="Vedic Sidereal Transits – Date, Aspects, Moon Timeline", layout="wide")
-st.title("🪐 Vedic Sidereal Transit Explorer")
 if not SWISSEPH_AVAILABLE:
-    st.error(
-        "pyswisseph (Swiss Ephemeris) is not installed in this environment.\n\n"
-        f"Technical details: {_import_err}\n\n"
-        "To run locally: `pip install pyswisseph streamlit pytz pandas` and then `streamlit run astro_transit_app.py`."
-    )
+    st.error("pyswisseph not installed here. Install locally: pip install pyswisseph streamlit pytz pandas")
     st.stop()
 
 colA, colB, colC = st.columns(3)
@@ -258,61 +202,16 @@ ayanamsa_map = {
 ay_mode = ayanamsa_map[ay_choice]
 swe.set_sid_mode(ay_mode, 0, 0)
 
-col1, col2 = st.columns(2)
-with col1:
-    orb_major = st.slider("Orb for aspects (most planets) [°]", 1.0, 6.0, 3.0, 0.5)
-with col2:
-    orb_moon = st.slider("Orb for Moon aspects [°]", 2.0, 10.0, 6.0, 0.5)
+st.subheader("Planetary Positions (Sidereal)")
+pos_df = planet_positions_for_date(date_in, tzname=tz_in, ayanamsa_mode=ay_mode)
+st.dataframe(pos_df, use_container_width=True)
 
-st.markdown("---")
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Positions", "Aspects", "Moon Aspects Timeline", "Moon Ingress", "Moon KP Sub-lord"
-])
-
-with tab1:
-    st.subheader("Planetary Positions (Sidereal)")
-    pos_df = planet_positions_for_date(date_in, tzname=tz_in, ayanamsa_mode=ay_mode)
-    st.dataframe(pos_df, use_container_width=True)
-
-with tab2:
-    st.subheader("Planetary Aspects (snapshot around local noon)")
-    asp_df = detect_aspects(pos_df, orb_major=orb_major, orb_moon=orb_moon)
-    if asp_df.empty:
-        st.info("No major aspects within selected orbs at the snapshot time.")
-    else:
-        st.dataframe(asp_df.sort_values(by=["Aspect","Planet A"]), use_container_width=True)
-
-with tab3:
-    st.subheader("🌙 Moon Aspects Timeline (exact times)")
-    with st.spinner("Computing Moon aspects across the day..."):
-        moon_df = moon_aspect_timeline(date_in, tzname=tz_in, ayanamsa_mode=ay_mode, orb_moon=orb_moon, step_minutes=15)
-    st.dataframe(moon_df, use_container_width=True)
-
-with tab4:
-    st.subheader("🌗 Moon Ingress (Sign & Nakshatra)")
-    with st.spinner("Scanning ingress events..."):
-        ingress_df = scan_ingress(date_in, tzname=tz_in, ayanamsa_mode=ay_mode, step_minutes=10)
-    st.dataframe(ingress_df, use_container_width=True)
-
-with tab5:
-    st.subheader("🧭 KP Sub-lord Timeline (Moon)")
-    with st.spinner("Calculating KP sub-lord changes..."):
-        kp_df = moon_kp_sublord_timeline(date_in, tzname=tz_in, ayanamsa_mode=ay_mode, step_minutes=5)
-    st.dataframe(kp_df, use_container_width=True)
-
-# Downloads for each table
-st.markdown("---")
-colD, colE, colF, colG, colH = st.columns(5)
-with colD:
-    st.download_button("Download Positions CSV", pos_df.to_csv(index=False).encode(), file_name=f"positions_{date_in}.csv")
-with colE:
-    st.download_button("Download Aspects CSV", asp_df.to_csv(index=False).encode(), file_name=f"aspects_{date_in}.csv")
-with colF:
-    st.download_button("Download Moon Timeline CSV", moon_df.to_csv(index=False).encode(), file_name=f"moon_timeline_{date_in}.csv")
-with colG:
-    st.download_button("Download Moon Ingress CSV", ingress_df.to_csv(index=False).encode(), file_name=f"moon_ingress_{date_in}.csv")
-with colH:
-    st.download_button("Download KP Sub-lord CSV", kp_df.to_csv(index=False).encode(), file_name=f"kp_sublord_{date_in}.csv")
+st.subheader("Planetary Aspects (snapshot)")
+asp_df = detect_aspects(pos_df, orb_major=3.0, orb_moon=6.0)
+if asp_df.empty:
+    st.info("No aspects found within default orbs (or some longitudes unavailable).")
+else:
+    st.dataframe(asp_df, use_container_width=True)
 
 if USE_MOSEPH:
-    st.info("Running with MOSEPH (built-in ephemeris). For higher precision, download Swiss ephemeris files and set swe.set_ephe_path(path).")
+    st.caption("Note: MOSEPH fallback is active. For best precision, configure Swiss ephemeris files via swe.set_ephe_path().")
