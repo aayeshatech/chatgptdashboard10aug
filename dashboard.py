@@ -1,6 +1,6 @@
 
 # astro_transit_app.py
-# Vedic Sidereal Transits — Robust + Full Aspect Timelines + Moon KP details (on-screen only)
+# Vedic Sidereal Transits — Robust + Full Aspect Timelines + Moon KP details + Data Analysis (on-screen only)
 
 import math
 from datetime import datetime, timedelta, timezone
@@ -202,7 +202,6 @@ def detect_aspects(positions, orb_major=3.0, orb_moon=6.0):
 
 # ---- Timelines ----
 def refine_exact_time(body_a, body_b, target_angle, start_utc, tzname, ay_mode, tol_deg=1/60, max_iter=28):
-    """Binary-search for exact aspect time (to ~1 arcmin)."""
     left = start_utc - timedelta(hours=6)
     right = start_utc + timedelta(hours=6)
     swe.set_sid_mode(ay_mode, 0, 0)
@@ -226,14 +225,12 @@ def refine_exact_time(body_a, body_b, target_angle, start_utc, tzname, ay_mode, 
         mid = left + (right - left)/2
         a_mid = angle_at(mid)
         if a_mid is None:
-            # nudge slightly
             mid += timedelta(minutes=2)
             a_mid = angle_at(mid)
             if a_mid is None:
                 break
         if abs(a_mid - target_angle) <= tol_deg:
             return to_local(mid, tzname)
-        # Heuristic: choose side bringing closer
         if abs(a_left - target_angle) < abs(a_right - target_angle):
             right = mid; a_right = a_mid
         else:
@@ -242,7 +239,6 @@ def refine_exact_time(body_a, body_b, target_angle, start_utc, tzname, ay_mode, 
 
 def planetary_aspect_timeline(date_local, tzname="Asia/Kolkata", ay_mode=swe.SIDM_LAHIRI,
                               orb_major=3.0, orb_moon=6.0, step_minutes=20):
-    """Find all exact aspect times (all planet pairs) within the day."""
     swe.set_sid_mode(ay_mode, 0, 0)
     try:
         swe.set_ephe_path("/usr/share/ephe")
@@ -257,13 +253,10 @@ def planetary_aspect_timeline(date_local, tzname="Asia/Kolkata", ay_mode=swe.SID
 
     events = []
     cur = t_utc
-    seen = set()  # (Aspect, A, B) to avoid duplicates
+    seen = set()
     while cur < end_utc:
         jd = julday_from_dt(cur)
-        # cache longitudes at this step
-        longs = {}
-        for nm, pid in planet_ids.items():
-            longs[nm] = sidereal_longitude(pid, jd, ay_mode)
+        longs = {nm: sidereal_longitude(pid, jd, ay_mode) for nm, pid in planet_ids.items()}
 
         for i in range(len(names)):
             for j in range(i+1, len(names)):
@@ -279,7 +272,7 @@ def planetary_aspect_timeline(date_local, tzname="Asia/Kolkata", ay_mode=swe.SID
                         if key in seen:
                             continue
                         exact_local = refine_exact_time(planet_ids[A], planet_ids[B], exact, cur, tzname, ay_mode)
-                        # extra: if Moon involved, compute KP at exact time
+                        # Moon KP info
                         kp_info = {"Nakshatra": "", "Star Lord": "", "Sub-Lord": ""}
                         if A == "Moon" or B == "Moon":
                             jd_exact = julday_from_dt(exact_local.astimezone(pytz.utc))
@@ -404,9 +397,51 @@ def scan_ingress(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SIDM_LAHIR
 
     return pd.DataFrame(sorted(events, key=lambda x: x["Time"]))
 
+# ========== Data Analysis (Symbol-wise Bullish/Bearish) ==========
+DEFAULT_RULES = {
+    "weights": {
+        "benefics": {"Jupiter": 2.0, "Venus": 1.5, "Moon": 1.0, "Mercury": 0.8},
+        "malefics": {"Saturn": -2.0, "Mars": -1.5, "Rahu": -1.5, "Ketu": -1.2},
+        "sun": 0.5  # Sun treated mildly positive
+    },
+    "aspect_multipliers": {
+        "Trine": 1.0, "Sextile": 0.8, "Conjunction": 0.6, "Opposition": -0.9, "Square": -1.0
+    },
+    "asset_bias": {
+        "NIFTY": {"Jupiter": +0.5, "Saturn": -0.3, "Mercury": +0.2},
+        "BANKNIFTY": {"Jupiter": +0.6, "Saturn": -0.5, "Mercury": +0.3},
+        "GOLD": {"Saturn": -0.6, "Jupiter": +0.4, "Venus": +0.2, "Rahu": +0.3},  # flight-to-safety + Venus demand
+        "CRUDE": {"Mars": +0.6, "Saturn": -0.2, "Jupiter": +0.2},
+        "BTC": {"Rahu": +0.6, "Saturn": -0.4, "Jupiter": +0.2},
+        "DOW": {"Jupiter": +0.4, "Saturn": -0.3, "Mercury": +0.2}
+    },
+    "thresholds": {"bullish": 1.0, "bearish": -1.0}
+}
+
+def score_event(row, asset, rules=DEFAULT_RULES):
+    A, B, aspect = row["Planet A"], row["Planet B"], row["Aspect"]
+    w = rules["weights"]; mult = rules["aspect_multipliers"]; bias_map = rules["asset_bias"]
+    # planet base weights
+    def p_weight(p):
+        if p in ("Sun",): return w["sun"]
+        if p in w["benefics"]: return w["benefics"][p]
+        if p in w["malefics"]: return w["malefics"][p]
+        return 0.0
+    s = (p_weight(A) + p_weight(B)) * mult.get(aspect, 0.0)
+    # asset bias tweaks
+    asset = asset.upper()
+    if asset in bias_map:
+        s += bias_map[asset].get(A, 0.0) + bias_map[asset].get(B, 0.0)
+    return s
+
+def classify_score(score, rules=DEFAULT_RULES):
+    if score >= rules["thresholds"]["bullish"]: return "Bullish"
+    if score <= rules["thresholds"]["bearish"]: return "Bearish"
+    return "Neutral/Volatile"
+
 # --- UI ---
-st.set_page_config(page_title="Vedic Sidereal Transits — Timelines", layout="wide")
-st.title("🪐 Vedic Sidereal Transit Explorer — Full Timelines (On-Screen)")
+st.set_page_config(page_title="Vedic Sidereal Transits — Timelines + Analysis", layout="wide")
+st.title("🪐 Vedic Sidereal Transit Explorer — Full Timelines + Data Analysis")
 
 if not SWISSEPH_AVAILABLE:
     st.error("pyswisseph not installed here. Install locally: pip install pyswisseph streamlit pytz pandas")
@@ -425,7 +460,7 @@ ayanamsa_map = {
     "Krishnamurti": swe.SIDM_KRISHNAMURTI,
     "True Citra": swe.SIDM_TRUE_CITRA
 }
-ay_mode = ayanamsa_map[ay_choice]
+ay_mode = ayansma = ayanamsa_map[ay_choice]  # typo-proof alias
 swe.set_sid_mode(ay_mode, 0, 0)
 
 col1, col2 = st.columns(2)
@@ -435,16 +470,17 @@ with col2:
     orb_moon = st.slider("Orb for Moon aspects [°]", 2.0, 10.0, 6.0, 0.5)
 
 st.markdown("---")
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "Positions", "Aspects (snapshot)", "Moon Aspects Timeline", "Moon Ingress", "Moon KP Sub-lord", "All Planet Aspect Timeline"
+tabs = st.tabs([
+    "Positions", "Aspects (snapshot)", "Moon Aspects Timeline", "Moon Ingress",
+    "Moon KP Sub-lord", "All Planet Aspect Timeline", "Data Analysis"
 ])
 
-with tab1:
+with tabs[0]:
     st.subheader("Planetary Positions (Sidereal)")
     pos_df = planet_positions_for_date(date_in, tzname=tz_in, ayanamsa_mode=ay_mode)
     st.dataframe(pos_df, use_container_width=True)
 
-with tab2:
+with tabs[1]:
     st.subheader("Planetary Aspects (snapshot around local noon)")
     asp_df = detect_aspects(pos_df, orb_major=orb_major, orb_moon=orb_moon)
     if asp_df.empty:
@@ -452,34 +488,91 @@ with tab2:
     else:
         st.dataframe(asp_df.sort_values(by=["Aspect","Planet A"]), use_container_width=True)
 
-with tab3:
+with tabs[2]:
     st.subheader("🌙 Moon Aspects Timeline (exact times + KP at exact moment)")
     with st.spinner("Computing Moon aspects across the day..."):
-        moon_day = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, orb_major=orb_major, orb_moon=orb_moon, step_minutes=20)
-        moon_df = moon_day[(moon_day["Planet A"]=="Moon") | (moon_day["Planet B"]=="Moon")].reset_index(drop=True)
+        day_all = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, orb_major=orb_major, orb_moon=orb_moon, step_minutes=20)
+        moon_df = day_all[(day_all["Planet A"]=="Moon") | (day_all["Planet B"]=="Moon")].reset_index(drop=True)
     st.dataframe(moon_df, use_container_width=True)
 
-with tab4:
+with tabs[3]:
     st.subheader("🌗 Moon Ingress (Sign & Nakshatra)")
     with st.spinner("Scanning ingress events..."):
         ingress_df = scan_ingress(date_in, tzname=tz_in, ayanamsa_mode=ay_mode, step_minutes=10)
     st.dataframe(ingress_df, use_container_width=True)
 
-with tab5:
+with tabs[4]:
     st.subheader("🧭 KP Sub-lord Timeline (Moon)")
     with st.spinner("Calculating KP sub-lord changes..."):
         kp_df = moon_kp_sublord_timeline(date_in, tzname=tz_in, ayanamsa_mode=ay_mode, step_minutes=5)
     st.dataframe(kp_df, use_container_width=True)
 
-with tab6:
+with tabs[5]:
     st.subheader("🕒 All Planet Aspect Timeline (exact times for all pairs)")
     with st.spinner("Computing aspect timeline for all planets..."):
         asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, orb_major=orb_major, orb_moon=orb_moon, step_minutes=20)
     st.dataframe(asp_timeline_df, use_container_width=True)
 
+with tabs[6]:
+    st.subheader("📊 Data Analysis — Symbol-wise Bullish/Bearish Timeline")
+    c1, c2 = st.columns([2,1])
+    with c1:
+        symbol = st.text_input("Symbol", value="NIFTY")
+    with c2:
+        asset_class = st.selectbox("Asset Class", ["NIFTY","BANKNIFTY","GOLD","CRUDE","BTC","DOW","OTHER"], index=0)
+
+    with st.spinner("Scoring events for the day..."):
+        # ensure we have timeline
+        if 'asp_timeline_df' not in locals():
+            asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, orb_major=orb_major, orb_moon=orb_moon, step_minutes=20)
+        df = asp_timeline_df.copy()
+
+        # score each row
+        scores = []
+        for _, r in df.iterrows():
+            s = score_event(r, asset_class, DEFAULT_RULES)
+            scores.append(s)
+        df["Score"] = scores
+        df["Signal"] = [classify_score(s, DEFAULT_RULES) for s in scores]
+        df["Symbol"] = symbol.upper()
+
+        # Only keep the core view
+        view_cols = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B",
+                     "Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
+        df_view = df[view_cols].sort_values("Time")
+
+    # Show summary counts
+    colx, coly, colz = st.columns(3)
+    with colx:
+        st.metric("Bullish windows", int((df_view["Signal"]=="Bullish").sum()))
+    with coly:
+        st.metric("Bearish windows", int((df_view["Signal"]=="Bearish").sum()))
+    with colz:
+        st.metric("Neutral/Volatile", int((df_view["Signal"]=="Neutral/Volatile").sum()))
+
+    st.dataframe(df_view, use_container_width=True)
+
+    st.markdown("**Rules (editable JSON):**")
+    rules_json = st.text_area("Tweak weights/aspects/bias/thresholds then press Apply", value=str(DEFAULT_RULES), height=220)
+    if st.button("Apply Custom Rules"):
+        try:
+            import ast
+            custom = ast.literal_eval(rules_json)
+            scores2 = []
+            for _, r in df.iterrows():
+                s2 = score_event(r, asset_class, custom)
+                scores2.append(s2)
+            df["Score"] = scores2
+            df["Signal"] = [classify_score(s2, custom) for s2 in scores2]
+            df_view2 = df[view_cols].sort_values("Time")
+            st.success("Applied custom rules.")
+            st.dataframe(df_view2, use_container_width=True)
+        except Exception as e:
+            st.error(f"Could not parse rules: {e}")
+
 # Downloads
 st.markdown("---")
-colD, colE, colF, colG, colH, colI = st.columns(6)
+colD, colE, colF, colG, colH, colI, colJ = st.columns(7)
 with colD:
     st.download_button("Download Positions CSV", pos_df.to_csv(index=False).encode(), file_name=f"positions_{date_in}.csv")
 with colE:
@@ -492,6 +585,8 @@ with colH:
     st.download_button("Download KP Sub-lord CSV", kp_df.to_csv(index=False).encode(), file_name=f"kp_sublord_{date_in}.csv")
 with colI:
     st.download_button("Download All Aspects Timeline CSV", asp_timeline_df.to_csv(index=False).encode(), file_name=f"aspects_timeline_{date_in}.csv")
+with colJ:
+    st.download_button("Download Data Analysis CSV", df_view.to_csv(index=False).encode(), file_name=f"signal_timeline_{symbol}_{date_in}.csv")
 
 if USE_MOSEPH:
     st.caption("Note: MOSEPH fallback is active. For best precision, configure Swiss ephemeris files via swe.set_ephe_path().")
