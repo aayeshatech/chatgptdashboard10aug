@@ -1,6 +1,7 @@
+
 # astro_transit_app.py
 # Streamlit app: Vedic Sidereal Astro Transit + Aspects + Moon Timeline (+ Ingress + Telegram format)
-# Robust ephemeris handling (fallback to MOSEPH if Swiss ephemeris files are missing).
+# Robust ephemeris handling (fallback to MOSEPH if Swiss ephemeris files are missing) + calc_ut return-shape fix.
 
 import math
 from datetime import datetime, timedelta, timezone
@@ -42,18 +43,43 @@ ASPECTS = {0:"Conjunction",60:"Sextile",90:"Square",120:"Trine",180:"Opposition"
 # ---- Robust Swiss Ephemeris flags ----
 USE_MOSEPH = False  # will be set True if we detect missing ephemeris files
 
+def _calc_ut_standardized(jd_ut, body, use_moseph=False):
+    """Call swe.calc_ut and normalize return shape across versions.
+    Returns (lon, lat, dist, speed_lon).
+    """
+    flag_base = swe.FLG_MOSEPH if use_moseph else swe.FLG_SWIEPH
+    flag = flag_base | swe.FLG_SPEED
+    out = swe.calc_ut(jd_ut, body, flag)
+    # pyswisseph versions may return 3, 4, or 6 numbers; normalize to 4.
+    if isinstance(out, (list, tuple)):
+        if len(out) >= 4:
+            lon, lat, dist, speed_lon = out[0], out[1], out[2], out[3]
+        elif len(out) == 3:
+            lon, lat, dist = out
+            speed_lon = 0.0
+        else:
+            # unexpected; pad
+            vals = list(out) + [0.0, 0.0, 0.0, 0.0]
+            lon, lat, dist, speed_lon = vals[0], vals[1], vals[2], vals[3]
+    else:
+        # very old wrapper returning object; try attributes
+        lon = getattr(out, 'longitude', 0.0)
+        lat = getattr(out, 'latitude', 0.0)
+        dist = getattr(out, 'distance', 1.0)
+        speed_lon = getattr(out, 'longitude_speed', 0.0)
+    return float(lon), float(lat), float(dist), float(speed_lon)
+
 def _try_calc_ut(jd_ut, body):
-    """Try SWIEPH, then fallback to MOSEPH (built-in), to avoid file path issues."""
+    """Try SWIEPH, then fallback to MOSEPH (built-in), to avoid file path issues
+    and normalize output to 4-tuple.
+    """
     global USE_MOSEPH
-    # Prefer Swiss ephemeris if available
-    flag = (swe.FLG_SWIEPH if not USE_MOSEPH else swe.FLG_MOSEPH) | swe.FLG_SPEED
     try:
-        return swe.calc_ut(jd_ut, body, flag)
+        return _calc_ut_standardized(jd_ut, body, use_moseph=USE_MOSEPH)
     except Exception:
         # Switch to MOSEPH and try again
-        flag = swe.FLG_MOSEPH | swe.FLG_SPEED
         USE_MOSEPH = True
-        return swe.calc_ut(jd_ut, body, flag)
+        return _calc_ut_standardized(jd_ut, body, use_moseph=True)
 
 def normalize_angle(a):
     a = a % 360.0
@@ -105,7 +131,6 @@ def sidereal_longitude(body, jd_ut, ayanamsa):
 
 def planet_positions_for_date(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SIDM_LAHIRI):
     swe.set_sid_mode(ayanamsa_mode, 0, 0)
-    # Try to set ephemeris path; if not present, MOSEPH fallback will kick in automatically.
     try:
         swe.set_ephe_path("/usr/share/ephe")
     except Exception:
