@@ -29,7 +29,8 @@ class AppConfig:
     SECTORS: Dict[str, Dict[str, List[str]]] = field(default_factory=lambda: {
         "INDICES": {
             "NIFTY50": ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "BHARTIARTL", "ITC", "HINDUNILVR", "LT", "SBIN"],
-            "BANKNIFTY": ["HDFCBANK", "ICICIBANK", "KOTAKBANK", "AXISBANK", "SBIN", "PNB", "BANDHANBNK", "FEDERALBNK"]
+            "BANKNIFTY": ["HDFCBANK", "ICICIBANK", "KOTAKBANK", "AXISBANK", "SBIN", "PNB", "BANDHANBNK", "FEDERALBNK"],
+            "DOWJONES": ["AAPL", "MSFT", "UNH", "GS", "HD", "MCD", "V", "CAT", "AMGN", "CRM"]
         },
         "SECTORS": {
             "PHARMA": ["SUNPHARMA", "CIPLA", "DRREDDY", "DIVISLAB", "AUROPHARMA"],
@@ -39,6 +40,13 @@ class AppConfig:
             "OIL_GAS": ["RELIANCE", "ONGC", "BPCL", "IOC", "GAIL"],
             "TELECOM": ["BHARTIARTL", "IDEA", "RJIO"],
             "IT": ["TCS", "INFY", "WIPRO", "HCLTECH", "TECHM"]
+        },
+        "COMMODITIES": {
+            "GOLD": ["GOLD_SPOT", "GLD_ETF", "GOLDIAM", "TITAN", "KALYAN"],
+            "SILVER": ["SILVER_SPOT", "SLV_ETF", "HINDZINC", "VEDL", "SILVERCORP"],
+            "CRUDE": ["CRUDE_WTI", "CRUDE_BRENT", "RELIANCE", "ONGC", "IOC"],
+            "CRYPTO": ["BTC_USD", "ETH_USD", "BNB_USD", "ADA_USD", "SOL_USD"],
+            "ENERGY": ["POWERGRID", "NTPC", "COALINDIA", "ADANIGREEN", "TATAPOWER"]
         }
     })
     
@@ -163,6 +171,29 @@ class SectorAnalysis:
     top_stocks: List[str] = field(default_factory=list)
     events_count: Dict[str, int] = field(default_factory=dict)
     risk_level: str = "Medium"
+
+@dataclass
+class StockAnalysis:
+    symbol: str
+    sector: str
+    current_score: float
+    trend: str
+    bullish_periods: List[str] = field(default_factory=list)
+    bearish_periods: List[str] = field(default_factory=list)
+    next_event_time: Optional[str] = None
+    confidence: float = 0.7
+    risk_level: str = "Medium"
+
+@dataclass
+class TimingAnalysis:
+    sector: str
+    current_phase: str
+    phase_strength: str
+    bullish_windows: List[Dict[str, str]] = field(default_factory=list)
+    bearish_windows: List[Dict[str, str]] = field(default_factory=list)
+    peak_bullish_time: Optional[str] = None
+    peak_bearish_time: Optional[str] = None
+    transition_times: List[str] = field(default_factory=list)
 
 # ---------------- Utility Functions ----------------
 def safe_float(x, default=None):
@@ -560,8 +591,224 @@ def render_cards(cards, header):
           <div><strong>NetScore:</strong> {c['netscore']}</div>
         </div>
         """, unsafe_allow_html=True)
+    
+    # Commodity Performance Summary
+    commodity_sectors = ['GOLD', 'SILVER', 'CRUDE', 'CRYPTO', 'ENERGY', 'DOWJONES']
+    commodity_data = [s for s in sector_data if s.sector in commodity_sectors]
+    
+    if commodity_data:
+        st.markdown("### 🥇 Commodity Market Overview")
+        commodity_cols = st.columns(min(len(commodity_data), 4))
+        
+        for i, commodity in enumerate(commodity_data[:4]):
+            with commodity_cols[i]:
+                commodity_icons = {
+                    'GOLD': '🥇', 'SILVER': '🥈', 'CRUDE': '🛢️', 
+                    'CRYPTO': '₿', 'ENERGY': '⚡', 'DOWJONES': '📊'
+                }
+                icon = commodity_icons.get(commodity.sector, '📈')
+                
+                trend_class = "bullish-card" if commodity.net_score > 0 else "bearish-card"
+                st.markdown(f"""
+                <div class="metric-card {trend_class}">
+                    <h3>{icon} {commodity.sector}</h3>
+                    <h2>{commodity.net_score:+.2f}</h2>
+                    <p>{commodity.signal_strength}</p>
+                    <small>Conf: {commodity.confidence:.1%}</small>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # Additional commodity details table
+        if len(commodity_data) > 4:
+            st.markdown("### 📋 Complete Commodity Overview")
+            commodity_table_data = []
+            for commodity in commodity_data:
+                commodity_table_data.append({
+                    'Commodity': commodity.sector,
+                    'Score': commodity.net_score,
+                    'Trend': commodity.trend,
+                    'Strength': commodity.signal_strength,
+                    'Confidence': f"{commodity.confidence:.1%}",
+                    'Risk': commodity.risk_level
+                })
+            
+            commodity_df = pd.DataFrame(commodity_table_data)
+            
+            # Style the commodity table
+            def style_commodity_row(row):
+                score = row['Score']
+                if score >= 1.0:
+                    return ['background-color: #dcfce7' for _ in row]
+                elif score <= -1.0:
+                    return ['background-color: #fef2f2' for _ in row]
+                else:
+                    return ['background-color: #fefce8' for _ in row]
+            
+            try:
+                styled_commodity_df = commodity_df.style.apply(style_commodity_row, axis=1)
+                st.dataframe(styled_commodity_df, use_container_width=True)
+            except:
+                st.dataframe(commodity_df, use_container_width=True)
+    
+    # Quick Timing Overview for All Sectors
+    st.markdown("### ⏰ Quick Timing Overview - Next 8 Hours")
+    timing_overview = []
+    
+    current_time = datetime.now()
+    for i in range(8):
+        hour_time = (current_time + timedelta(hours=i)).strftime('%H:%M')
+        
+        # Simulate which sectors are bullish/bearish at this time
+        bullish_sectors = []
+        bearish_sectors = []
+        
+        for sector in sector_data[:6]:  # Top 6 sectors
+            # Simple simulation based on score and time
+            time_factor = (i % 3) - 1  # Varies from -1 to 1
+            adjusted_score = sector.net_score + (time_factor * 0.3)
+            
+            if adjusted_score > 0.5:
+                bullish_sectors.append(sector.sector)
+            elif adjusted_score < -0.5:
+                bearish_sectors.append(sector.sector)
+        
+        timing_overview.append({
+            'Time': hour_time,
+            'Bullish Sectors': ', '.join(bullish_sectors[:3]) if bullish_sectors else 'None',
+            'Bearish Sectors': ', '.join(bearish_sectors[:3]) if bearish_sectors else 'None',
+            'Market Phase': 'Active' if (i >= 1 and i <= 6) else 'Pre/Post Market'
+        })
+    
+    timing_df = pd.DataFrame(timing_overview)
+    st.dataframe(timing_df, use_container_width=True)
 
-def style_sector_table(df, current_sector=None):
+def generate_stock_analysis(sector_name: str, stocks: List[str], base_score: float, user_config: Dict) -> List[StockAnalysis]:
+    """Generate detailed stock-level analysis with timing"""
+    stock_analyses = []
+    
+    for i, stock in enumerate(stocks):
+        # Simulate individual stock variation
+        stock_variation = (hash(stock + str(user_config['date'])) % 100 - 50) / 100  # -0.5 to +0.5
+        stock_score = base_score + stock_variation
+        
+        # Generate bullish/bearish periods
+        bullish_periods = []
+        bearish_periods = []
+        
+        current_time = datetime.combine(user_config['date'], user_config['start_time'])
+        
+        # Generate time windows based on score
+        if stock_score > 0:
+            bullish_periods = [
+                f"{(current_time + timedelta(hours=2)).strftime('%H:%M')} - {(current_time + timedelta(hours=4)).strftime('%H:%M')}",
+                f"{(current_time + timedelta(hours=6)).strftime('%H:%M')} - {(current_time + timedelta(hours=7)).strftime('%H:%M')}"
+            ]
+            bearish_periods = [
+                f"{(current_time + timedelta(hours=1)).strftime('%H:%M')} - {(current_time + timedelta(hours=1, minutes=30)).strftime('%H:%M')}"
+            ]
+        else:
+            bearish_periods = [
+                f"{(current_time + timedelta(hours=1)).strftime('%H:%M')} - {(current_time + timedelta(hours=3)).strftime('%H:%M')}",
+                f"{(current_time + timedelta(hours=5)).strftime('%H:%M')} - {(current_time + timedelta(hours=6)).strftime('%H:%M')}"
+            ]
+            bullish_periods = [
+                f"{(current_time + timedelta(hours=4)).strftime('%H:%M')} - {(current_time + timedelta(hours=4, minutes=45)).strftime('%H:%M')}"
+            ]
+        
+        # Next significant event
+        next_event = (current_time + timedelta(hours=2 + i, minutes=30)).strftime('%H:%M')
+        
+        analysis = StockAnalysis(
+            symbol=stock,
+            sector=sector_name,
+            current_score=round(stock_score, 2),
+            trend=get_signal_strength(stock_score),
+            bullish_periods=bullish_periods,
+            bearish_periods=bearish_periods,
+            next_event_time=next_event,
+            confidence=min(0.95, max(0.4, 0.6 + abs(stock_score) * 0.15)),
+            risk_level="High" if abs(stock_score) > 2 else "Medium" if abs(stock_score) > 1 else "Low"
+        )
+        
+        stock_analyses.append(analysis)
+    
+    return stock_analyses
+
+def generate_timing_analysis(sector_name: str, base_score: float, user_config: Dict) -> TimingAnalysis:
+    """Generate detailed timing analysis for sector"""
+    current_time = datetime.combine(user_config['date'], user_config['start_time'])
+    
+    # Determine current phase
+    if base_score >= 1.5:
+        current_phase = "Strong Bullish Phase"
+        phase_strength = "Very Strong"
+    elif base_score >= 0.5:
+        current_phase = "Bullish Phase" 
+        phase_strength = "Moderate"
+    elif base_score <= -1.5:
+        current_phase = "Strong Bearish Phase"
+        phase_strength = "Very Strong"
+    elif base_score <= -0.5:
+        current_phase = "Bearish Phase"
+        phase_strength = "Moderate"
+    else:
+        current_phase = "Neutral Phase"
+        phase_strength = "Weak"
+    
+    # Generate time windows
+    bullish_windows = []
+    bearish_windows = []
+    
+    if base_score > 0:
+        bullish_windows = [
+            {"start": (current_time + timedelta(hours=1)).strftime('%H:%M'), 
+             "end": (current_time + timedelta(hours=3)).strftime('%H:%M'),
+             "strength": "Strong"},
+            {"start": (current_time + timedelta(hours=5)).strftime('%H:%M'), 
+             "end": (current_time + timedelta(hours=6)).strftime('%H:%M'),
+             "strength": "Moderate"}
+        ]
+        bearish_windows = [
+            {"start": (current_time + timedelta(hours=4)).strftime('%H:%M'), 
+             "end": (current_time + timedelta(hours=4, minutes=30)).strftime('%H:%M'),
+             "strength": "Weak"}
+        ]
+        peak_bullish_time = (current_time + timedelta(hours=2)).strftime('%H:%M')
+        peak_bearish_time = (current_time + timedelta(hours=4, minutes=15)).strftime('%H:%M')
+    else:
+        bearish_windows = [
+            {"start": (current_time + timedelta(hours=1)).strftime('%H:%M'), 
+             "end": (current_time + timedelta(hours=2, minutes=30)).strftime('%H:%M'),
+             "strength": "Strong"},
+            {"start": (current_time + timedelta(hours=4)).strftime('%H:%M'), 
+             "end": (current_time + timedelta(hours=5)).strftime('%H:%M'),
+             "strength": "Moderate"}
+        ]
+        bullish_windows = [
+            {"start": (current_time + timedelta(hours=3)).strftime('%H:%M'), 
+             "end": (current_time + timedelta(hours=3, minutes=45)).strftime('%H:%M'),
+             "strength": "Weak"}
+        ]
+        peak_bearish_time = (current_time + timedelta(hours=1, minutes=45)).strftime('%H:%M')
+        peak_bullish_time = (current_time + timedelta(hours=3, minutes=20)).strftime('%H:%M')
+    
+    # Transition times
+    transition_times = [
+        (current_time + timedelta(hours=2, minutes=30)).strftime('%H:%M'),
+        (current_time + timedelta(hours=4, minutes=45)).strftime('%H:%M'),
+        (current_time + timedelta(hours=6, minutes=15)).strftime('%H:%M')
+    ]
+    
+    return TimingAnalysis(
+        sector=sector_name,
+        current_phase=current_phase,
+        phase_strength=phase_strength,
+        bullish_windows=bullish_windows,
+        bearish_windows=bearish_windows,
+        peak_bullish_time=peak_bullish_time,
+        peak_bearish_time=peak_bearish_time,
+        transition_times=transition_times
+    )
     """Style sector ranking table with colors"""
     if df.empty: 
         return df
@@ -671,8 +918,12 @@ class EnhancedScoringEngine:
         asset_biases = {
             "NIFTY": {"Jupiter": 0.5, "Saturn": -0.3, "Mercury": 0.2},
             "BANKNIFTY": {"Jupiter": 0.6, "Saturn": -0.5, "Mercury": 0.3, "Mars": -0.2},
+            "DOWJONES": {"Jupiter": 0.4, "Saturn": -0.4, "Mercury": 0.3, "Venus": 0.2},
             "GOLD": {"Saturn": -0.6, "Jupiter": 0.4, "Venus": 0.2, "Rahu": 0.3},
-            "CRUDE": {"Mars": 0.6, "Saturn": -0.2, "Jupiter": 0.2},
+            "SILVER": {"Saturn": -0.5, "Jupiter": 0.3, "Venus": 0.3, "Moon": 0.2},
+            "CRUDE": {"Mars": 0.6, "Saturn": -0.2, "Jupiter": 0.2, "Rahu": 0.4},
+            "CRYPTO": {"Rahu": 0.7, "Saturn": -0.4, "Jupiter": 0.2, "Mercury": 0.4, "Ketu": 0.3},
+            "ENERGY": {"Mars": 0.5, "Sun": 0.4, "Jupiter": 0.3, "Saturn": -0.3},
             "BTC": {"Rahu": 0.6, "Saturn": -0.4, "Jupiter": 0.2, "Mercury": 0.3}
         }
         
@@ -805,6 +1056,13 @@ def create_executive_summary(sector_data: List[SectorAnalysis]):
         st.warning("No sector data available for analysis.")
         return
     
+    # Separate traditional vs commodity sectors
+    traditional_sectors = ['NIFTY50', 'BANKNIFTY', 'PHARMA', 'AUTO', 'FMCG', 'METAL', 'OIL_GAS', 'TELECOM', 'IT']
+    commodity_sectors = ['GOLD', 'SILVER', 'CRUDE', 'CRYPTO', 'ENERGY', 'DOWJONES']
+    
+    traditional_data = [s for s in sector_data if s.sector in traditional_sectors]
+    commodity_data = [s for s in sector_data if s.sector in commodity_sectors]
+    
     # Calculate summary metrics
     scores = [s.net_score for s in sector_data]
     avg_score = sum(scores) / len(scores) if scores else 0
@@ -815,6 +1073,9 @@ def create_executive_summary(sector_data: List[SectorAnalysis]):
     # Top performers
     top_bullish = max(sector_data, key=lambda x: x.net_score)
     top_bearish = min(sector_data, key=lambda x: x.net_score)
+    
+    # Top commodity performer
+    top_commodity = max(commodity_data, key=lambda x: abs(x.net_score)) if commodity_data else None
     
     # Create metrics row
     col1, col2, col3, col4 = st.columns(4)
@@ -852,16 +1113,55 @@ def create_executive_summary(sector_data: List[SectorAnalysis]):
         """, unsafe_allow_html=True)
     
     with col4:
-        vol_level = "High" if volatility > 1.5 else "Moderate" if volatility > 0.8 else "Low"
-        vol_class = "bearish-card" if volatility > 1.5 else "neutral-card"
-        st.markdown(f"""
-        <div class="metric-card {vol_class}">
-            <h3>📊 Volatility</h3>
-            <h2>{vol_level}</h2>
-            <p>Std Dev: {volatility:.2f}</p>
-            <small>Signal Consistency</small>
-        </div>
-        """, unsafe_allow_html=True)
+        if top_commodity:
+            commodity_icons = {
+                'GOLD': '🥇', 'SILVER': '🥈', 'CRUDE': '🛢️', 
+                'CRYPTO': '₿', 'ENERGY': '⚡', 'DOWJONES': '📊'
+            }
+            icon = commodity_icons.get(top_commodity.sector, '📈')
+            commodity_class = "bullish-card" if top_commodity.net_score > 0 else "bearish-card"
+            st.markdown(f"""
+            <div class="metric-card {commodity_class}">
+                <h3>{icon} Top Commodity</h3>
+                <h2>{top_commodity.sector}</h2>
+                <p>Score: {top_commodity.net_score:+.2f}</p>
+                <small>{top_commodity.signal_strength} Signal</small>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            vol_level = "High" if volatility > 1.5 else "Moderate" if volatility > 0.8 else "Low"
+            vol_class = "bearish-card" if volatility > 1.5 else "neutral-card"
+            st.markdown(f"""
+            <div class="metric-card {vol_class}">
+                <h3>📊 Volatility</h3>
+                <h2>{vol_level}</h2>
+                <p>Std Dev: {volatility:.2f}</p>
+                <small>Signal Consistency</small>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Commodity Performance Summary
+    if commodity_data:
+        st.markdown("### 🥇 Commodity Market Overview")
+        commodity_cols = st.columns(min(len(commodity_data), 4))
+        
+        for i, commodity in enumerate(commodity_data[:4]):
+            with commodity_cols[i]:
+                commodity_icons = {
+                    'GOLD': '🥇', 'SILVER': '🥈', 'CRUDE': '🛢️', 
+                    'CRYPTO': '₿', 'ENERGY': '⚡', 'DOWJONES': '📊'
+                }
+                icon = commodity_icons.get(commodity.sector, '📈')
+                
+                trend_class = "bullish-card" if commodity.net_score > 0 else "bearish-card"
+                st.markdown(f"""
+                <div class="metric-card {trend_class}">
+                    <h3>{icon} {commodity.sector}</h3>
+                    <h2>{commodity.net_score:+.2f}</h2>
+                    <p>{commodity.signal_strength}</p>
+                    <small>Conf: {commodity.confidence:.1%}</small>
+                </div>
+                """, unsafe_allow_html=True)
 
 def create_sector_performance_chart(sector_data: List[SectorAnalysis]):
     """Create interactive sector performance visualization"""
@@ -981,7 +1281,63 @@ def create_enhanced_data_table(df: pd.DataFrame, table_type: str = "sector"):
         st.write("Raw data:")
         st.write(df)
 
-def create_alert_system(sector_data: List[SectorAnalysis]):
+def create_commodity_alerts(sector_data: List[SectorAnalysis]):
+    """Create specialized alerts for commodity sectors"""
+    st.markdown("### 🥇 Commodity Market Alerts")
+    
+    commodity_sectors = ['GOLD', 'SILVER', 'CRUDE', 'CRYPTO', 'ENERGY', 'DOWJONES']
+    commodity_alerts = [s for s in sector_data if s.sector in commodity_sectors]
+    
+    if not commodity_alerts:
+        st.info("No commodity data available for alerts.")
+        return
+    
+    # Sort by absolute score
+    commodity_alerts.sort(key=lambda x: abs(x.net_score), reverse=True)
+    
+    for commodity in commodity_alerts[:6]:  # Show top 6 commodities
+        abs_score = abs(commodity.net_score)
+        
+        # Determine alert level
+        if abs_score >= 2.5:
+            alert_level = "🚨 CRITICAL"
+            alert_class = "alert-danger"
+        elif abs_score >= 1.5:
+            alert_level = "⚠️ HIGH"
+            alert_class = "alert-warning"
+        elif abs_score >= 1.0:
+            alert_level = "📢 MODERATE"
+            alert_class = "alert-success"
+        else:
+            continue
+        
+        direction = "BULLISH" if commodity.net_score > 0 else "BEARISH"
+        
+        # Commodity-specific icons
+        commodity_icons = {
+            'GOLD': '🥇', 'SILVER': '🥈', 'CRUDE': '🛢️', 
+            'CRYPTO': '₿', 'ENERGY': '⚡', 'DOWJONES': '📊'
+        }
+        icon = commodity_icons.get(commodity.sector, '📈')
+        
+        # Special messages for commodities
+        if commodity.sector == 'GOLD':
+            message = "Safe haven demand" if direction == "BULLISH" else "Risk-on sentiment"
+        elif commodity.sector == 'CRUDE':
+            message = "Supply concerns" if direction == "BULLISH" else "Demand weakness"
+        elif commodity.sector == 'CRYPTO':
+            message = "Digital asset momentum" if direction == "BULLISH" else "Regulatory concerns"
+        else:
+            message = f"{direction.lower()} momentum"
+        
+        st.markdown(f"""
+        <div class="alert-box {alert_class}">
+            {icon} <strong>{alert_level} {direction} SIGNAL - {commodity.sector}</strong><br>
+            <strong>Score:</strong> {commodity.net_score:.2f} | <strong>Confidence:</strong> {commodity.confidence:.1%}<br>
+            <strong>Analysis:</strong> {message}<br>
+            <small>Risk Level: {commodity.risk_level} | Signal Strength: {commodity.signal_strength}</small>
+        </div>
+        """, unsafe_allow_html=True)
     """Create intelligent alert system"""
     st.markdown("### 🚨 Market Intelligence Alerts")
     
@@ -1221,8 +1577,9 @@ def main():
     # Create main dashboard
     if sector_analyses:
         create_executive_summary(sector_analyses)
-        # Alert system
+        # Alert systems
         create_alert_system(sector_analyses)
+        create_commodity_alerts(sector_analyses)
     else:
         st.warning("⚠️ No sector data available. Please check your configuration or try refreshing the page.")
         st.info("This may be due to data loading issues or configuration problems.")
@@ -1274,7 +1631,7 @@ def main():
             create_enhanced_data_table(sector_df, "sector")
             
             # Sector selector for detailed analysis
-            st.markdown("### 🎯 Detailed Sector Breakdown")
+            st.markdown("### 🎯 Detailed Sector Breakdown with Timing Analysis")
             selected_sector = st.selectbox(
                 "Select sector for detailed analysis:",
                 [s.sector for s in sector_analyses],
@@ -1283,13 +1640,137 @@ def main():
             
             selected_analysis = next(s for s in sector_analyses if s.sector == selected_sector)
             
-            col1, col2, col3 = st.columns(3)
+            # Main metrics row
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Net Score", f"{selected_analysis.net_score:.2f}")
             with col2:
                 st.metric("Confidence", f"{selected_analysis.confidence:.1%}")
             with col3:
                 st.metric("Risk Level", selected_analysis.risk_level)
+            with col4:
+                st.metric("Signal Strength", selected_analysis.signal_strength)
+            
+            # Generate detailed stock and timing analysis
+            sectors_flat = {}
+            for category, sector_dict in config.SECTORS.items():
+                sectors_flat.update(sector_dict)
+            
+            stocks = sectors_flat.get(selected_sector, [])
+            stock_analyses = generate_stock_analysis(selected_sector, stocks, selected_analysis.net_score, user_config)
+            timing_analysis = generate_timing_analysis(selected_sector, selected_analysis.net_score, user_config)
+            
+            # Timing Analysis Section
+            st.markdown("#### 🕐 Sector Timing Analysis")
+            timing_col1, timing_col2 = st.columns(2)
+            
+            with timing_col1:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <h4>📊 Current Phase</h4>
+                    <h3>{timing_analysis.current_phase}</h3>
+                    <p><strong>Strength:</strong> {timing_analysis.phase_strength}</p>
+                    <p><strong>Peak Bullish:</strong> {timing_analysis.peak_bullish_time}</p>
+                    <p><strong>Peak Bearish:</strong> {timing_analysis.peak_bearish_time}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with timing_col2:
+                st.markdown("**🟢 Bullish Time Windows:**")
+                for window in timing_analysis.bullish_windows:
+                    strength_color = "#16a34a" if window["strength"] == "Strong" else "#ca8a04" if window["strength"] == "Moderate" else "#9ca3af"
+                    st.markdown(f"<span style='color:{strength_color}'>⏰ {window['start']} - {window['end']} ({window['strength']})</span>", unsafe_allow_html=True)
+                
+                st.markdown("**🔴 Bearish Time Windows:**")
+                for window in timing_analysis.bearish_windows:
+                    strength_color = "#dc2626" if window["strength"] == "Strong" else "#ea580c" if window["strength"] == "Moderate" else "#9ca3af"
+                    st.markdown(f"<span style='color:{strength_color}'>⏰ {window['start']} - {window['end']} ({window['strength']})</span>", unsafe_allow_html=True)
+            
+            # Stock-Level Analysis
+            st.markdown("#### 📈 Individual Stock Analysis")
+            
+            if stock_analyses:
+                # Create stock analysis table
+                stock_df = pd.DataFrame([
+                    {
+                        'Symbol': stock.symbol,
+                        'Score': stock.current_score,
+                        'Trend': stock.trend,
+                        'Confidence': f"{stock.confidence:.1%}",
+                        'Risk': stock.risk_level,
+                        'Next Event': stock.next_event_time,
+                        'Bullish Windows': ' | '.join(stock.bullish_periods),
+                        'Bearish Windows': ' | '.join(stock.bearish_periods)
+                    }
+                    for stock in stock_analyses
+                ])
+                
+                # Apply color coding to the table
+                def color_stock_rows(row):
+                    score = float(row['Score']) if isinstance(row['Score'], (int, float)) else 0
+                    if score >= 1.0:
+                        return ['background-color: #dcfce7' for _ in row]
+                    elif score <= -1.0:
+                        return ['background-color: #fef2f2' for _ in row]
+                    else:
+                        return ['background-color: #fefce8' for _ in row]
+                
+                try:
+                    styled_stock_df = stock_df.style.apply(color_stock_rows, axis=1)
+                    st.dataframe(styled_stock_df, use_container_width=True)
+                except:
+                    st.dataframe(stock_df, use_container_width=True)
+                
+                # Stock selector for detailed view
+                st.markdown("#### 🔍 Detailed Stock View")
+                selected_stock_symbol = st.selectbox(
+                    "Select stock for detailed timing:",
+                    [stock.symbol for stock in stock_analyses],
+                    key="stock_selector"
+                )
+                
+                selected_stock = next(stock for stock in stock_analyses if stock.symbol == selected_stock_symbol)
+                
+                # Detailed stock information
+                stock_col1, stock_col2, stock_col3 = st.columns(3)
+                
+                with stock_col1:
+                    score_color = "#16a34a" if selected_stock.current_score > 0 else "#dc2626"
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h4>📊 {selected_stock.symbol}</h4>
+                        <h2 style="color: {score_color}">{selected_stock.current_score:.2f}</h2>
+                        <p><strong>Trend:</strong> {selected_stock.trend}</p>
+                        <p><strong>Next Event:</strong> {selected_stock.next_event_time}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with stock_col2:
+                    st.markdown("**🟢 Bullish Periods:**")
+                    for period in selected_stock.bullish_periods:
+                        st.markdown(f"✅ {period}")
+                    
+                    st.markdown("**🔴 Bearish Periods:**")
+                    for period in selected_stock.bearish_periods:
+                        st.markdown(f"❌ {period}")
+                
+                with stock_col3:
+                    confidence_color = "#16a34a" if selected_stock.confidence > 0.7 else "#ca8a04" if selected_stock.confidence > 0.5 else "#dc2626"
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h4>📈 Analysis Metrics</h4>
+                        <p><strong>Confidence:</strong> <span style="color: {confidence_color}">{selected_stock.confidence:.1%}</span></p>
+                        <p><strong>Risk Level:</strong> {selected_stock.risk_level}</p>
+                        <p><strong>Sector:</strong> {selected_stock.sector}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Transition Times
+            st.markdown("#### ⏰ Key Transition Times")
+            st.markdown("**Important timing points to watch:**")
+            for i, transition_time in enumerate(timing_analysis.transition_times):
+                transition_type = ["Trend Shift", "Momentum Change", "Phase Transition"][i % 3]
+                st.markdown(f"🔄 **{transition_time}** - {transition_type}")
             
             st.markdown(f"**Top Performing Stocks:** {', '.join(selected_analysis.top_stocks)}")
         else:
