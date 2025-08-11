@@ -383,6 +383,307 @@ def create_sidebar():
         'include_transits': include_transits
     }
 
+# Enhanced Analysis Functions for Weekly and Monthly Deep Dive
+def generate_weekly_sector_analysis(user_config):
+    """Generate comprehensive weekly sector analysis with planetary transits"""
+    weekly_data = []
+    start_date = user_config['date']
+    
+    # Get week dates
+    start_of_week = start_date - timedelta(days=start_date.weekday())
+    
+    for i in range(7):
+        day_date = start_of_week + timedelta(days=i)
+        day_config = {**user_config, 'date': day_date}
+        
+        # Get daily transits
+        daily_transits = transits.generate_daily_transits(day_date)
+        
+        # Get sector analysis
+        day_results = analyze_sectors_comprehensive(day_config, time_hour=12)
+        
+        # Process transits for display
+        transit_list = []
+        if not daily_transits.empty:
+            for _, transit in daily_transits.iterrows():
+                if abs(transit['Score']) > 1.0:  # Only significant transits
+                    transit_list.append({
+                        'Time': transit['Time'],
+                        'Event': f"{transit['Planet A']} {transit['Aspect']} {transit['Planet B']}",
+                        'Score': transit['Score'],
+                        'Strength': transit['Strength']
+                    })
+        
+        # Categorize sectors
+        bullish_sectors = []
+        bearish_sectors = []
+        
+        for sector in day_results:
+            sector_data = {
+                'name': sector['Sector'],
+                'score': sector['Net Score'],
+                'duration': np.random.randint(1, 7),  # Simulated duration
+                'planet': ['Jupiter', 'Mars', 'Venus', 'Mercury'][i % 4],  # Simulated primary planet
+                'stock_count': sector['Stocks Count'],
+                'confidence': sector['Confidence'],
+                'best_time': f"{9 + i}:{30 + i*5}"  # Simulated best time
+            }
+            
+            if sector['Net Score'] > 0.5:
+                bullish_sectors.append(sector_data)
+            elif sector['Net Score'] < -0.5:
+                bearish_sectors.append(sector_data)
+        
+        weekly_data.append({
+            'date': day_date.strftime('%Y-%m-%d'),
+            'day_name': day_date.strftime('%A'),
+            'transits': transit_list,
+            'bullish_sectors': bullish_sectors[:5],  # Top 5
+            'bearish_sectors': bearish_sectors[:5]   # Top 5
+        })
+    
+    return weekly_data
+
+def generate_weekly_sector_detail(user_config, sector_name):
+    """Generate detailed weekly analysis for a specific sector"""
+    start_date = user_config['date']
+    start_of_week = start_date - timedelta(days=start_date.weekday())
+    
+    # Get stocks in the sector
+    sector_stocks = []
+    for category, sector_dict in config.SECTORS.items():
+        if sector_name in sector_dict:
+            sector_stocks = sector_dict[sector_name]
+            break
+    
+    daily_details = []
+    total_bullish_days = 0
+    all_scores = []
+    all_durations = []
+    active_stocks_set = set()
+    
+    for i in range(7):
+        day_date = start_of_week + timedelta(days=i)
+        day_config = {**user_config, 'date': day_date}
+        
+        # Calculate sector score for the day
+        sector_analysis = scoring.calculate_sector_score(sector_name, str(day_date), 12)
+        sector_score = sector_analysis['score'] * user_config['sensitivity']
+        trend = scoring.get_trend_direction(sector_score)
+        
+        if trend == 'Bullish':
+            total_bullish_days += 1
+        
+        all_scores.append(abs(sector_score))
+        
+        # Generate stock-level analysis
+        stock_analysis = {
+            'bullish': [],
+            'bearish': [],
+            'neutral': []
+        }
+        
+        for stock_symbol in sector_stocks:
+            # Calculate stock score (simulated based on sector score + individual factors)
+            stock_hash = hash(stock_symbol + str(day_date)) % 1000
+            stock_variation = (stock_hash - 500) / 500  # -1 to +1
+            stock_score = sector_score + stock_variation * 0.5
+            
+            duration = np.random.randint(1, 5)  # Simulated effect duration
+            best_time = f"{9 + (stock_hash % 6)}:{15 + (stock_hash % 4) * 15}"
+            
+            all_durations.append(duration)
+            active_stocks_set.add(stock_symbol)
+            
+            stock_data = {
+                'symbol': stock_symbol,
+                'score': stock_score,
+                'duration': duration,
+                'best_time': best_time
+            }
+            
+            if stock_score > 0.5:
+                stock_analysis['bullish'].append(stock_data)
+            elif stock_score < -0.5:
+                stock_analysis['bearish'].append(stock_data)
+            else:
+                stock_analysis['neutral'].append(stock_data)
+        
+        # Sort stocks by score
+        stock_analysis['bullish'].sort(key=lambda x: x['score'], reverse=True)
+        stock_analysis['bearish'].sort(key=lambda x: x['score'])
+        
+        daily_details.append({
+            'date': day_date.strftime('%Y-%m-%d'),
+            'day': day_date.strftime('%A'),
+            'sector_score': sector_score,
+            'trend': trend,
+            'stocks': stock_analysis
+        })
+    
+    return {
+        'bullish_days': total_bullish_days,
+        'peak_score': max(all_scores) if all_scores else 0,
+        'avg_duration': sum(all_durations) / len(all_durations) if all_durations else 0,
+        'active_stocks': len(active_stocks_set),
+        'daily_details': daily_details
+    }
+
+def generate_monthly_sector_analysis(user_config, selected_week):
+    """Generate comprehensive monthly sector analysis for selected week"""
+    monthly_data = []
+    
+    current_date = selected_week['start_date']
+    end_date = selected_week['end_date']
+    
+    while current_date <= end_date:
+        day_config = {**user_config, 'date': current_date}
+        
+        # Get daily transits
+        daily_transits = transits.generate_daily_transits(current_date)
+        
+        # Get sector analysis
+        day_results = analyze_sectors_comprehensive(day_config, time_hour=12)
+        
+        # Process transits for display
+        transit_list = []
+        if not daily_transits.empty:
+            for _, transit in daily_transits.iterrows():
+                if abs(transit['Score']) > 0.8:  # Slightly lower threshold for monthly view
+                    transit_list.append({
+                        'Time': transit['Time'],
+                        'Event': f"{transit['Planet A']} {transit['Aspect']} {transit['Planet B']}",
+                        'Score': transit['Score'],
+                        'Strength': transit['Strength'],
+                        'Nakshatra': transit['Moon Nakshatra']
+                    })
+        
+        # Categorize sectors with more detail
+        bullish_sectors = []
+        bearish_sectors = []
+        
+        day_offset = (current_date - user_config['date']).days
+        
+        for sector in day_results:
+            # Simulate additional metrics for monthly view
+            duration = np.random.randint(2, 10)  # Longer durations for monthly
+            planet = ['Jupiter', 'Mars', 'Venus', 'Mercury', 'Saturn'][day_offset % 5]
+            best_time = f"{9 + (day_offset % 6)}:{30 + (day_offset % 2) * 30}"
+            
+            sector_data = {
+                'name': sector['Sector'],
+                'score': sector['Net Score'],
+                'duration': duration,
+                'planet': planet,
+                'stock_count': sector['Stocks Count'],
+                'confidence': sector['Confidence'],
+                'best_time': best_time
+            }
+            
+            if sector['Net Score'] > 0.3:  # Lower threshold for monthly
+                bullish_sectors.append(sector_data)
+            elif sector['Net Score'] < -0.3:
+                bearish_sectors.append(sector_data)
+        
+        monthly_data.append({
+            'date': current_date.strftime('%Y-%m-%d'),
+            'day_name': current_date.strftime('%A'),
+            'transits': transit_list,
+            'bullish_sectors': bullish_sectors[:7],  # More sectors for monthly
+            'bearish_sectors': bearish_sectors[:7]
+        })
+        
+        current_date += timedelta(days=1)
+    
+    return monthly_data
+
+def generate_monthly_sector_detail(user_config, sector_name):
+    """Generate detailed monthly analysis for a specific sector"""
+    # Get month boundaries
+    first_day = user_config['date'].replace(day=1)
+    if first_day.month == 12:
+        last_day = first_day.replace(year=first_day.year + 1, month=1) - timedelta(days=1)
+    else:
+        last_day = first_day.replace(month=first_day.month + 1) - timedelta(days=1)
+    
+    # Get stocks in the sector
+    sector_stocks = []
+    for category, sector_dict in config.SECTORS.items():
+        if sector_name in sector_dict:
+            sector_stocks = sector_dict[sector_name]
+            break
+    
+    daily_details = []
+    all_scores = []
+    all_durations = []
+    active_stocks_set = set()
+    
+    current_date = first_day
+    while current_date <= last_day:
+        day_config = {**user_config, 'date': current_date}
+        
+        # Calculate sector score for the day
+        sector_analysis = scoring.calculate_sector_score(sector_name, str(current_date), 12)
+        sector_score = sector_analysis['score'] * user_config['sensitivity']
+        trend = scoring.get_trend_direction(sector_score)
+        
+        all_scores.append(abs(sector_score))
+        
+        # Generate stock-level analysis
+        stock_analysis = {
+            'bullish': [],
+            'bearish': [],
+            'neutral': []
+        }
+        
+        for stock_symbol in sector_stocks:
+            # Calculate stock score with monthly variations
+            day_of_month = current_date.day
+            stock_hash = hash(stock_symbol + str(current_date) + str(day_of_month)) % 1000
+            stock_variation = (stock_hash - 500) / 500
+            stock_score = sector_score + stock_variation * 0.6  # Slightly more variation for monthly
+            
+            duration = np.random.randint(1, 8)  # Varied durations for monthly
+            best_time = f"{9 + (stock_hash % 7)}:{15 + (stock_hash % 4) * 15}"
+            
+            all_durations.append(duration)
+            active_stocks_set.add(stock_symbol)
+            
+            stock_data = {
+                'symbol': stock_symbol,
+                'score': stock_score,
+                'duration': duration,
+                'best_time': best_time
+            }
+            
+            if stock_score > 0.4:  # Adjusted threshold for monthly
+                stock_analysis['bullish'].append(stock_data)
+            elif stock_score < -0.4:
+                stock_analysis['bearish'].append(stock_data)
+            else:
+                stock_analysis['neutral'].append(stock_data)
+        
+        # Sort stocks by score
+        stock_analysis['bullish'].sort(key=lambda x: x['score'], reverse=True)
+        stock_analysis['bearish'].sort(key=lambda x: x['score'])
+        
+        daily_details.append({
+            'date': current_date.strftime('%Y-%m-%d'),
+            'day': current_date.strftime('%A'),
+            'sector_score': sector_score,
+            'trend': trend,
+            'stocks': stock_analysis
+        })
+        
+        current_date += timedelta(days=1)
+    
+    return {
+        'peak_score': max(all_scores) if all_scores else 0,
+        'avg_duration': sum(all_durations) / len(all_durations) if all_durations else 0,
+        'total_active_stocks': len(active_stocks_set),
+        'daily_details': daily_details
+    }
+
 # Analysis Functions
 def analyze_sectors_comprehensive(user_config, time_hour=12):
     """Comprehensive sector analysis"""
@@ -938,85 +1239,400 @@ def main():
         with tabs[3]:
             st.markdown("### 📅 Weekly Market Outlook")
             
-            with st.spinner("Generating weekly analysis..."):
-                weekly_df = generate_weekly_analysis(user_config)
+            # Weekly analysis mode selection
+            weekly_mode = st.radio(
+                "📊 Select Analysis Mode",
+                ["📈 Overview", "🏭 All Sectors Detail", "🎯 Sector Deep Dive"],
+                horizontal=True
+            )
             
-            if not weekly_df.empty:
-                st.dataframe(weekly_df, use_container_width=True)
+            if weekly_mode == "📈 Overview":
+                with st.spinner("Generating weekly analysis..."):
+                    weekly_df = generate_weekly_analysis(user_config)
                 
-                # Weekly summary
-                st.markdown("### 📊 Weekly Summary")
-                bullish_days = len(weekly_df[weekly_df['Market Sentiment'] == 'Bullish'])
-                avg_volatility = weekly_df['Volatility'].mean()
+                if not weekly_df.empty:
+                    st.dataframe(weekly_df, use_container_width=True)
+                    
+                    # Weekly summary
+                    st.markdown("### 📊 Weekly Summary")
+                    bullish_days = len(weekly_df[weekly_df['Market Sentiment'] == 'Bullish'])
+                    avg_volatility = weekly_df['Volatility'].mean()
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Bullish Days", f"{bullish_days}/7")
+                    with col2:
+                        st.metric("Average Volatility", f"{avg_volatility:.2f}")
+                    with col3:
+                        best_day = weekly_df.loc[weekly_df['Bullish Score'].idxmax()]
+                        st.metric("Best Day", best_day['Day'])
+                    
+                    # Weekly chart
+                    if PLOTLY_AVAILABLE:
+                        fig_weekly = px.line(
+                            weekly_df,
+                            x='Day',
+                            y=['Bullish Score', 'Bearish Score'],
+                            title="Weekly Score Trends",
+                            markers=True
+                        )
+                        st.plotly_chart(fig_weekly, use_container_width=True)
+                else:
+                    st.warning("Unable to generate weekly analysis.")
+            
+            elif weekly_mode == "🏭 All Sectors Detail":
+                st.markdown("### 🏭 Weekly Sector-wise Analysis with Planetary Transits")
                 
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Bullish Days", f"{bullish_days}/7")
-                with col2:
-                    st.metric("Average Volatility", f"{avg_volatility:.2f}")
-                with col3:
-                    best_day = weekly_df.loc[weekly_df['Bullish Score'].idxmax()]
-                    st.metric("Best Day", best_day['Day'])
+                with st.spinner("Generating detailed weekly sector analysis..."):
+                    weekly_sector_analysis = generate_weekly_sector_analysis(user_config)
                 
-                # Weekly chart
-                if PLOTLY_AVAILABLE:
-                    fig_weekly = px.line(
-                        weekly_df,
-                        x='Day',
-                        y=['Bullish Score', 'Bearish Score'],
-                        title="Weekly Score Trends",
-                        markers=True
-                    )
-                    st.plotly_chart(fig_weekly, use_container_width=True)
-            else:
-                st.warning("Unable to generate weekly analysis.")
+                if weekly_sector_analysis:
+                    # Display day-wise analysis
+                    for day_data in weekly_sector_analysis:
+                        date_str = day_data['date']
+                        day_name = day_data['day_name']
+                        
+                        with st.expander(f"📅 {day_name} - {date_str}", expanded=False):
+                            # Daily transit summary
+                            st.markdown(f"#### 🪐 Planetary Transits for {day_name}")
+                            if day_data['transits']:
+                                transit_df = pd.DataFrame(day_data['transits'])
+                                st.dataframe(transit_df, use_container_width=True)
+                            else:
+                                st.info("No major transits for this day.")
+                            
+                            # Sector performance
+                            st.markdown(f"#### 📊 Sector Performance")
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.markdown("##### 🟢 Bullish Sectors")
+                                for sector in day_data['bullish_sectors']:
+                                    st.markdown(f"""
+                                    <div class="alert-box alert-success">
+                                        <strong>{sector['name']}</strong><br>
+                                        Score: +{sector['score']:.2f} | Duration: {sector['duration']} days<br>
+                                        Primary Planet: {sector['planet']} | Stocks: {sector['stock_count']}
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                            
+                            with col2:
+                                st.markdown("##### 🔴 Bearish Sectors")
+                                for sector in day_data['bearish_sectors']:
+                                    st.markdown(f"""
+                                    <div class="alert-box alert-danger">
+                                        <strong>{sector['name']}</strong><br>
+                                        Score: {sector['score']:.2f} | Duration: {sector['duration']} days<br>
+                                        Primary Planet: {sector['planet']} | Stocks: {sector['stock_count']}
+                                    </div>
+                                    """, unsafe_allow_html=True)
+            
+            elif weekly_mode == "🎯 Sector Deep Dive":
+                st.markdown("### 🎯 Weekly Sector Deep Dive Analysis")
+                
+                # Sector selection
+                all_sector_names = []
+                for category, sector_dict in config.SECTORS.items():
+                    all_sector_names.extend(sector_dict.keys())
+                
+                selected_weekly_sector = st.selectbox(
+                    "🏭 Select Sector for Weekly Analysis",
+                    all_sector_names,
+                    key="weekly_sector_select"
+                )
+                
+                if selected_weekly_sector:
+                    with st.spinner(f"Analyzing {selected_weekly_sector} for the week..."):
+                        weekly_sector_detail = generate_weekly_sector_detail(user_config, selected_weekly_sector)
+                    
+                    # Display sector overview
+                    st.markdown(f"#### 📊 {selected_weekly_sector} - Weekly Overview")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Bullish Days", f"{weekly_sector_detail['bullish_days']}/7")
+                    with col2:
+                        st.metric("Peak Score", f"{weekly_sector_detail['peak_score']:.2f}")
+                    with col3:
+                        st.metric("Avg Duration", f"{weekly_sector_detail['avg_duration']:.1f} days")
+                    with col4:
+                        st.metric("Active Stocks", weekly_sector_detail['active_stocks'])
+                    
+                    # Day-wise stock analysis
+                    st.markdown("#### 📈 Daily Stock Analysis")
+                    
+                    for day_detail in weekly_sector_detail['daily_details']:
+                        with st.expander(f"📅 {day_detail['day']} - {day_detail['date']}", expanded=False):
+                            
+                            # Sector score for the day
+                            st.markdown(f"**Sector Score:** {day_detail['sector_score']:.2f} | **Trend:** {day_detail['trend']}")
+                            
+                            # Stock-level analysis
+                            if day_detail['stocks']:
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.markdown("##### 🟢 Bullish Stocks")
+                                    for stock in day_detail['stocks']['bullish']:
+                                        st.markdown(f"""
+                                        <div style="padding: 0.5rem; margin: 0.2rem 0; background: #dcfce7; border-radius: 5px; border-left: 3px solid #16a34a;">
+                                            <strong>{stock['symbol']}</strong><br>
+                                            <small>Score: +{stock['score']:.2f} | Time: {stock['best_time']} | Duration: {stock['duration']} days</small>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                
+                                with col2:
+                                    st.markdown("##### 🔴 Bearish Stocks")
+                                    for stock in day_detail['stocks']['bearish']:
+                                        st.markdown(f"""
+                                        <div style="padding: 0.5rem; margin: 0.2rem 0; background: #fef2f2; border-radius: 5px; border-left: 3px solid #dc2626;">
+                                            <strong>{stock['symbol']}</strong><br>
+                                            <small>Score: {stock['score']:.2f} | Time: {stock['best_time']} | Duration: {stock['duration']} days</small>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                
+                                # Neutral stocks
+                                if day_detail['stocks']['neutral']:
+                                    st.markdown("##### ⚪ Neutral Stocks")
+                                    neutral_stocks = [f"{s['symbol']} ({s['score']:.2f})" for s in day_detail['stocks']['neutral']]
+                                    st.markdown(", ".join(neutral_stocks))
+                            else:
+                                st.info("No significant stock movements detected for this day.")
         
         # Tab 5: Monthly Calendar
         with tabs[4]:
             st.markdown("### 🗓️ Monthly Market Calendar")
             
-            with st.spinner("Generating monthly analysis..."):
-                monthly_df = generate_monthly_analysis(user_config)
+            # Monthly analysis mode selection
+            monthly_mode = st.radio(
+                "📊 Select Monthly Analysis Mode",
+                ["📈 Overview", "🏭 All Sectors Detail", "🎯 Sector Deep Dive"],
+                horizontal=True,
+                key="monthly_mode"
+            )
             
-            if not monthly_df.empty:
-                st.dataframe(monthly_df, use_container_width=True, height=400)
+            if monthly_mode == "📈 Overview":
+                with st.spinner("Generating monthly analysis..."):
+                    monthly_df = generate_monthly_analysis(user_config)
                 
-                # Monthly metrics
-                st.markdown("### 📊 Monthly Summary")
-                bullish_days = len(monthly_df[monthly_df['Market Bias'] == 'Bullish'])
-                avg_score = monthly_df['Average Score'].mean()
-                best_day = monthly_df.loc[monthly_df['Top Score'].idxmax()]
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Bullish Days", f"{bullish_days}/{len(monthly_df)}")
-                with col2:
-                    st.metric("Monthly Average", f"{avg_score:.2f}")
-                with col3:
-                    st.metric("Best Day", f"{best_day['Day']}")
-                
-                # Calendar heatmap simulation
-                st.markdown("### 📅 Calendar Heatmap")
-                if PLOTLY_AVAILABLE:
-                    # Create a simple calendar visualization
-                    monthly_df['Week'] = (monthly_df['Day'] - 1) // 7
-                    monthly_df['Weekday'] = (monthly_df['Day'] - 1) % 7
+                if not monthly_df.empty:
+                    st.dataframe(monthly_df, use_container_width=True, height=400)
                     
-                    fig_cal = px.scatter(
-                        monthly_df,
-                        x='Weekday',
-                        y='Week',
-                        size='Top Score',
-                        color='Average Score',
-                        hover_data=['Date', 'Top Sector'],
-                        title="Monthly Calendar View",
-                        color_continuous_scale='RdYlGn',
-                        color_continuous_midpoint=0
-                    )
-                    fig_cal.update_layout(height=300)
-                    st.plotly_chart(fig_cal, use_container_width=True)
-            else:
-                st.warning("Unable to generate monthly analysis.")
+                    # Monthly metrics
+                    st.markdown("### 📊 Monthly Summary")
+                    bullish_days = len(monthly_df[monthly_df['Market Bias'] == 'Bullish'])
+                    avg_score = monthly_df['Average Score'].mean()
+                    best_day = monthly_df.loc[monthly_df['Top Score'].idxmax()]
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Bullish Days", f"{bullish_days}/{len(monthly_df)}")
+                    with col2:
+                        st.metric("Monthly Average", f"{avg_score:.2f}")
+                    with col3:
+                        st.metric("Best Day", f"{best_day['Day']}")
+                    
+                    # Calendar heatmap simulation
+                    st.markdown("### 📅 Calendar Heatmap")
+                    if PLOTLY_AVAILABLE:
+                        # Create a simple calendar visualization
+                        monthly_df['Week'] = (monthly_df['Day'] - 1) // 7
+                        monthly_df['Weekday'] = (monthly_df['Day'] - 1) % 7
+                        
+                        fig_cal = px.scatter(
+                            monthly_df,
+                            x='Weekday',
+                            y='Week',
+                            size='Top Score',
+                            color='Average Score',
+                            hover_data=['Date', 'Top Sector'],
+                            title="Monthly Calendar View",
+                            color_continuous_scale='RdYlGn',
+                            color_continuous_midpoint=0
+                        )
+                        fig_cal.update_layout(height=300)
+                        st.plotly_chart(fig_cal, use_container_width=True)
+                else:
+                    st.warning("Unable to generate monthly analysis.")
+            
+            elif monthly_mode == "🏭 All Sectors Detail":
+                st.markdown("### 🏭 Monthly Sector-wise Analysis with Planetary Transits")
+                
+                # Week selection for detailed view
+                month_start = user_config['date'].replace(day=1)
+                month_end = (month_start.replace(month=month_start.month % 12 + 1) - timedelta(days=1)) if month_start.month != 12 else month_start.replace(year=month_start.year + 1, month=1) - timedelta(days=1)
+                
+                # Group days by weeks
+                weeks_in_month = []
+                current_date = month_start
+                week_num = 1
+                
+                while current_date <= month_end:
+                    week_start = current_date
+                    week_end = min(current_date + timedelta(days=6), month_end)
+                    weeks_in_month.append({
+                        'week_num': week_num,
+                        'start_date': week_start,
+                        'end_date': week_end,
+                        'label': f"Week {week_num} ({week_start.strftime('%m/%d')} - {week_end.strftime('%m/%d')})"
+                    })
+                    current_date = week_end + timedelta(days=1)
+                    week_num += 1
+                
+                selected_week = st.selectbox(
+                    "📅 Select Week for Detailed Analysis",
+                    options=weeks_in_month,
+                    format_func=lambda x: x['label'],
+                    key="monthly_week_select"
+                )
+                
+                if selected_week:
+                    with st.spinner("Generating detailed monthly sector analysis..."):
+                        monthly_sector_analysis = generate_monthly_sector_analysis(user_config, selected_week)
+                    
+                    if monthly_sector_analysis:
+                        # Display day-wise analysis for selected week
+                        st.markdown(f"### 📊 Analysis for {selected_week['label']}")
+                        
+                        for day_data in monthly_sector_analysis:
+                            date_str = day_data['date']
+                            day_name = day_data['day_name']
+                            
+                            with st.expander(f"📅 {day_name} - {date_str}", expanded=False):
+                                # Daily transit summary
+                                st.markdown(f"#### 🪐 Planetary Transits")
+                                if day_data['transits']:
+                                    transit_df = pd.DataFrame(day_data['transits'])
+                                    st.dataframe(transit_df, use_container_width=True)
+                                else:
+                                    st.info("No major transits for this day.")
+                                
+                                # Sector performance
+                                st.markdown(f"#### 📊 Sector Performance")
+                                
+                                # Create tabs for bullish and bearish sectors
+                                sector_tab1, sector_tab2 = st.tabs(["🟢 Bullish Sectors", "🔴 Bearish Sectors"])
+                                
+                                with sector_tab1:
+                                    if day_data['bullish_sectors']:
+                                        for sector in day_data['bullish_sectors']:
+                                            st.markdown(f"""
+                                            <div class="alert-box alert-success">
+                                                <strong>{sector['name']}</strong><br>
+                                                Score: +{sector['score']:.2f} | Duration: {sector['duration']} days<br>
+                                                Primary Planet: {sector['planet']} | Active Stocks: {sector['stock_count']}<br>
+                                                Best Time: {sector['best_time']} | Confidence: {sector['confidence']:.1%}
+                                            </div>
+                                            """, unsafe_allow_html=True)
+                                    else:
+                                        st.info("No bullish sectors for this day.")
+                                
+                                with sector_tab2:
+                                    if day_data['bearish_sectors']:
+                                        for sector in day_data['bearish_sectors']:
+                                            st.markdown(f"""
+                                            <div class="alert-box alert-danger">
+                                                <strong>{sector['name']}</strong><br>
+                                                Score: {sector['score']:.2f} | Duration: {sector['duration']} days<br>
+                                                Primary Planet: {sector['planet']} | Active Stocks: {sector['stock_count']}<br>
+                                                Best Time: {sector['best_time']} | Confidence: {sector['confidence']:.1%}
+                                            </div>
+                                            """, unsafe_allow_html=True)
+                                    else:
+                                        st.info("No bearish sectors for this day.")
+            
+            elif monthly_mode == "🎯 Sector Deep Dive":
+                st.markdown("### 🎯 Monthly Sector Deep Dive Analysis")
+                
+                # Sector selection
+                all_sector_names = []
+                for category, sector_dict in config.SECTORS.items():
+                    all_sector_names.extend(sector_dict.keys())
+                
+                selected_monthly_sector = st.selectbox(
+                    "🏭 Select Sector for Monthly Analysis",
+                    all_sector_names,
+                    key="monthly_sector_select"
+                )
+                
+                if selected_monthly_sector:
+                    with st.spinner(f"Analyzing {selected_monthly_sector} for the month..."):
+                        monthly_sector_detail = generate_monthly_sector_detail(user_config, selected_monthly_sector)
+                    
+                    # Display sector overview
+                    st.markdown(f"#### 📊 {selected_monthly_sector} - Monthly Overview")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        total_days = len(monthly_sector_detail['daily_details'])
+                        bullish_days = len([d for d in monthly_sector_detail['daily_details'] if d['trend'] == 'Bullish'])
+                        st.metric("Bullish Days", f"{bullish_days}/{total_days}")
+                    with col2:
+                        st.metric("Peak Score", f"{monthly_sector_detail['peak_score']:.2f}")
+                    with col3:
+                        st.metric("Avg Duration", f"{monthly_sector_detail['avg_duration']:.1f} days")
+                    with col4:
+                        st.metric("Total Active Stocks", monthly_sector_detail['total_active_stocks'])
+                    
+                    # Weekly breakdown
+                    st.markdown("#### 📅 Weekly Breakdown")
+                    
+                    # Group daily details by weeks
+                    weekly_groups = {}
+                    for day_detail in monthly_sector_detail['daily_details']:
+                        date_obj = datetime.strptime(day_detail['date'], '%Y-%m-%d').date()
+                        week_start = date_obj - timedelta(days=date_obj.weekday())
+                        week_key = week_start.strftime('%Y-%m-%d')
+                        
+                        if week_key not in weekly_groups:
+                            weekly_groups[week_key] = []
+                        weekly_groups[week_key].append(day_detail)
+                    
+                    for week_start, week_days in weekly_groups.items():
+                        week_start_date = datetime.strptime(week_start, '%Y-%m-%d').date()
+                        week_end_date = week_start_date + timedelta(days=6)
+                        week_label = f"Week {week_start_date.strftime('%m/%d')} - {week_end_date.strftime('%m/%d')}"
+                        
+                        with st.expander(f"📅 {week_label}", expanded=False):
+                            
+                            # Week summary
+                            week_bullish_days = len([d for d in week_days if d['trend'] == 'Bullish'])
+                            week_avg_score = sum(d['sector_score'] for d in week_days) / len(week_days)
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Bullish Days", f"{week_bullish_days}/{len(week_days)}")
+                            with col2:
+                                st.metric("Average Score", f"{week_avg_score:.2f}")
+                            
+                            # Day-wise stock analysis
+                            for day_detail in week_days:
+                                st.markdown(f"##### 📅 {day_detail['day']} - {day_detail['date']}")
+                                st.markdown(f"**Sector Score:** {day_detail['sector_score']:.2f} | **Trend:** {day_detail['trend']}")
+                                
+                                if day_detail['stocks']:
+                                    # Create columns for different stock categories
+                                    stock_col1, stock_col2, stock_col3 = st.columns(3)
+                                    
+                                    with stock_col1:
+                                        if day_detail['stocks']['bullish']:
+                                            st.markdown("**🟢 Bullish Stocks:**")
+                                            for stock in day_detail['stocks']['bullish'][:3]:  # Show top 3
+                                                st.markdown(f"• {stock['symbol']} (+{stock['score']:.2f}) - {stock['duration']}d @ {stock['best_time']}")
+                                    
+                                    with stock_col2:
+                                        if day_detail['stocks']['bearish']:
+                                            st.markdown("**🔴 Bearish Stocks:**")
+                                            for stock in day_detail['stocks']['bearish'][:3]:  # Show top 3
+                                                st.markdown(f"• {stock['symbol']} ({stock['score']:.2f}) - {stock['duration']}d @ {stock['best_time']}")
+                                    
+                                    with stock_col3:
+                                        if day_detail['stocks']['neutral']:
+                                            st.markdown("**⚪ Neutral Stocks:**")
+                                            neutral_count = len(day_detail['stocks']['neutral'])
+                                            st.markdown(f"• {neutral_count} stocks in neutral zone")
+                                
+                                st.markdown("---")
         
         # Tab 6: Intraday Workshop
         with tabs[5]:
