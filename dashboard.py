@@ -4,9 +4,7 @@ from datetime import datetime, timedelta, time as dtime
 import pytz
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
 import calendar as _cal
-import numpy as np
 
 # ---------------- Setup ----------------
 SWISSEPH_AVAILABLE = True
@@ -416,35 +414,54 @@ def build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, 
     df = pd.DataFrame(rows).sort_values(["NetScore","Avg/Stock","Confidence"], ascending=[False,False,False]).reset_index(drop=True)
     return df
 
-# Heatmap helper
-def month_calendar_heatmap(month_days, month_df, title):
+
+
+def build_calendar_table(month_days, month_df):
+    """Return (display_df, styled_df) for a month calendar using pandas Styler.
+    Colors: blue for positive NetScore, red for negative, white/grey for ~0.
+    """
+    import pandas as _pd
+    import calendar as _cal
+    # Map date->score
     score_map = {row['Date']: float(row['NetScore']) for _, row in month_df.iterrows()}
     first = month_days[0]
-    first_weekday = _cal.monthrange(first.year, first.month)[0]  # Mon=0..Sun=6
-    values = [[np.nan]*7 for _ in range(6)]
-    labels = [[""]*7 for _ in range(6)]
+    first_weekday = _cal.monthrange(first.year, first.month)[0]  # 0=Mon
+    # Build 6x7 grids
+    labels = [["" for _ in range(7)] for __ in range(6)]
+    values = [[None for _ in range(7)] for __ in range(6)]
     r = 0; c = first_weekday
     for d in month_days:
         key = str(d)
-        val = score_map.get(key, 0.0)
-        values[r][c] = val
         labels[r][c] = str(d.day)
+        values[r][c] = score_map.get(key, 0.0)
         c += 1
         if c == 7:
             c = 0; r += 1
-    arr = np.array(values, dtype=float)
-    fig, ax = plt.subplots(figsize=(8,5))
-    im = ax.imshow(arr, aspect='equal')
-    for i in range(6):
-        for j in range(7):
-            if not np.isnan(arr[i,j]):
-                ax.text(j, i, labels[i][j], ha='center', va='center', fontsize=10, color='white')
-    ax.set_xticks(range(7)); ax.set_yticks(range(6))
-    ax.set_xticklabels(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'])
-    ax.set_yticklabels(['W1','W2','W3','W4','W5','W6'])
-    ax.set_title(title)
-    plt.tight_layout()
-    return fig
+    cols = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+    df_disp = _pd.DataFrame(labels, index=[f'W{i+1}' for i in range(6)], columns=cols)
+    df_vals = _pd.DataFrame(values, index=df_disp.index, columns=df_disp.columns)
+
+    def color_fn(row):
+        out = []
+        for j, cell in enumerate(row.index):
+            v = row[cell]
+            # If NaN/None display stays as is
+            try:
+                x = float(df_vals.loc[row.name, cell]) if df_vals.loc[row.name, cell] is not None else None
+            except Exception:
+                x = None
+            if x is None:
+                out.append('background-color: #f3f3f3')
+            elif x > 0.2:
+                out.append('background-color: #cfe8ff')  # light blue
+            elif x < -0.2:
+                out.append('background-color: #ffd6d6')  # light red
+            else:
+                out.append('background-color: #f9f9f9')  # near zero
+        return out
+
+    styled = df_disp.style.apply(color_fn, axis=1)
+    return df_disp, styled
 
 # ---------------- UI ----------------
 st.set_page_config(page_title="Vedic Sidereal — KP Strict + Sector Ranking", layout="wide")
@@ -836,12 +853,9 @@ with tabs[5]:
     month_df = pd.DataFrame(rows)
     st.dataframe(month_df, use_container_width=True)
 
-    # Calendar heatmap by top-sector NetScore
-    try:
-        fig = month_calendar_heatmap(month_days, month_df[['Date','NetScore']], title=f"NetScore Heatmap — {first_day.strftime('%B %Y')} (Top Bullish Sector)")
-        st.pyplot(fig)
-    except Exception as _e:
-        st.caption("Heatmap unavailable for this month — " + str(_e))
+    # Calendar heatmap by top-sector NetScore (pandas Styler; no extra installs)
+    disp_df, styled = build_calendar_table(month_days, month_df[['Date','NetScore']])
+    st.dataframe(styled, use_container_width=True)
 
     c1, c2 = st.columns(2)
     with c1:
