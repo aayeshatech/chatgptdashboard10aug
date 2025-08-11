@@ -1,9 +1,9 @@
 
 # astro_transit_app.py
-# Vedic Sidereal Transits — Robust + Full Aspect Timelines + Moon KP details + Data Analysis (on-screen only)
+# Vedic Sidereal Transits — Timelines + KP + Data Analysis (with Time Window Filters)
 
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, time as dtime, timezone
 import pytz
 import pandas as pd
 import streamlit as st
@@ -313,7 +313,6 @@ def moon_kp_sublord_timeline(date_local, tzname="Asia/Kolkata", ayanamsa_mode=sw
     lon0 = moon_lon(cur)
     if lon0 is None:
         return pd.DataFrame([])
-    nak0, pada0 = nakshatra_for(lon0)
     _, _, _, sub0 = kp_sublord_of_longitude(lon0)
 
     while cur < end_utc:
@@ -402,7 +401,7 @@ DEFAULT_RULES = {
     "weights": {
         "benefics": {"Jupiter": 2.0, "Venus": 1.5, "Moon": 1.0, "Mercury": 0.8},
         "malefics": {"Saturn": -2.0, "Mars": -1.5, "Rahu": -1.5, "Ketu": -1.2},
-        "sun": 0.5  # Sun treated mildly positive
+        "sun": 0.5
     },
     "aspect_multipliers": {
         "Trine": 1.0, "Sextile": 0.8, "Conjunction": 0.6, "Opposition": -0.9, "Square": -1.0
@@ -410,7 +409,7 @@ DEFAULT_RULES = {
     "asset_bias": {
         "NIFTY": {"Jupiter": +0.5, "Saturn": -0.3, "Mercury": +0.2},
         "BANKNIFTY": {"Jupiter": +0.6, "Saturn": -0.5, "Mercury": +0.3},
-        "GOLD": {"Saturn": -0.6, "Jupiter": +0.4, "Venus": +0.2, "Rahu": +0.3},  # flight-to-safety + Venus demand
+        "GOLD": {"Saturn": -0.6, "Jupiter": +0.4, "Venus": +0.2, "Rahu": +0.3},
         "CRUDE": {"Mars": +0.6, "Saturn": -0.2, "Jupiter": +0.2},
         "BTC": {"Rahu": +0.6, "Saturn": -0.4, "Jupiter": +0.2},
         "DOW": {"Jupiter": +0.4, "Saturn": -0.3, "Mercury": +0.2}
@@ -421,14 +420,12 @@ DEFAULT_RULES = {
 def score_event(row, asset, rules=DEFAULT_RULES):
     A, B, aspect = row["Planet A"], row["Planet B"], row["Aspect"]
     w = rules["weights"]; mult = rules["aspect_multipliers"]; bias_map = rules["asset_bias"]
-    # planet base weights
     def p_weight(p):
         if p in ("Sun",): return w["sun"]
         if p in w["benefics"]: return w["benefics"][p]
         if p in w["malefics"]: return w["malefics"][p]
         return 0.0
     s = (p_weight(A) + p_weight(B)) * mult.get(aspect, 0.0)
-    # asset bias tweaks
     asset = asset.upper()
     if asset in bias_map:
         s += bias_map[asset].get(A, 0.0) + bias_map[asset].get(B, 0.0)
@@ -460,7 +457,7 @@ ayanamsa_map = {
     "Krishnamurti": swe.SIDM_KRISHNAMURTI,
     "True Citra": swe.SIDM_TRUE_CITRA
 }
-ay_mode = ayansma = ayanamsa_map[ay_choice]  # typo-proof alias
+ay_mode = ayanamsa_map[ay_choice]
 swe.set_sid_mode(ay_mode, 0, 0)
 
 col1, col2 = st.columns(2)
@@ -483,10 +480,7 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("Planetary Aspects (snapshot around local noon)")
     asp_df = detect_aspects(pos_df, orb_major=orb_major, orb_moon=orb_moon)
-    if asp_df.empty:
-        st.info("No major aspects within selected orbs at the snapshot time.")
-    else:
-        st.dataframe(asp_df.sort_values(by=["Aspect","Planet A"]), use_container_width=True)
+    st.dataframe(asp_df.sort_values(by=["Aspect","Planet A"]) if not asp_df.empty else asp_df, use_container_width=True)
 
 with tabs[2]:
     st.subheader("🌙 Moon Aspects Timeline (exact times + KP at exact moment)")
@@ -515,17 +509,34 @@ with tabs[5]:
 
 with tabs[6]:
     st.subheader("📊 Data Analysis — Symbol-wise Bullish/Bearish Timeline")
-    c1, c2 = st.columns([2,1])
+    c1, c2, c3, c4 = st.columns([2,1,1,1])
     with c1:
-        symbol = st.text_input("Symbol", value="NIFTY")
+        symbol = st.text_input("Symbol (any: NIFTY, BANKNIFTY, GOLD, CRUDE, BTC, etc.)", value="NIFTY")
     with c2:
-        asset_class = st.selectbox("Asset Class", ["NIFTY","BANKNIFTY","GOLD","CRUDE","BTC","DOW","OTHER"], index=0)
+        asset_class = st.selectbox("Asset Class (bias preset)", ["NIFTY","BANKNIFTY","GOLD","CRUDE","BTC","DOW","OTHER"], index=0)
+    with c3:
+        start_t = st.time_input("Start Time", value=dtime(9,15))  # default Indian market open-ish
+    with c4:
+        end_t = st.time_input("End Time", value=dtime(15,30))
 
-    with st.spinner("Scoring events for the day..."):
-        # ensure we have timeline
+    with st.spinner("Scoring events for the selected window..."):
         if 'asp_timeline_df' not in locals():
             asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, orb_major=orb_major, orb_moon=orb_moon, step_minutes=20)
         df = asp_timeline_df.copy()
+
+        # parse Time strings into tz-aware datetimes
+        tz = pytz.timezone(tz_in)
+        df["TimeLocal"] = pd.to_datetime(df["Time"], format="%Y-%m-%d %H:%M").apply(lambda x: tz.localize(x))
+
+        # build window [start, end) possibly crossing midnight
+        start_local = tz.localize(datetime.combine(date_in, start_t))
+        end_local = tz.localize(datetime.combine(date_in, end_t))
+        if end_local <= start_local:
+            end_local = end_local + timedelta(days=1)
+
+        # filter
+        mask = (df["TimeLocal"] >= start_local) & (df["TimeLocal"] < end_local)
+        df = df[mask].copy()
 
         # score each row
         scores = []
@@ -536,12 +547,10 @@ with tabs[6]:
         df["Signal"] = [classify_score(s, DEFAULT_RULES) for s in scores]
         df["Symbol"] = symbol.upper()
 
-        # Only keep the core view
         view_cols = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B",
                      "Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
         df_view = df[view_cols].sort_values("Time")
 
-    # Show summary counts
     colx, coly, colz = st.columns(3)
     with colx:
         st.metric("Bullish windows", int((df_view["Signal"]=="Bullish").sum()))
@@ -554,18 +563,15 @@ with tabs[6]:
 
     st.markdown("**Rules (editable JSON):**")
     rules_json = st.text_area("Tweak weights/aspects/bias/thresholds then press Apply", value=str(DEFAULT_RULES), height=220)
-    if st.button("Apply Custom Rules"):
+    if st.button("Apply Custom Rules to Current Window"):
         try:
             import ast
             custom = ast.literal_eval(rules_json)
-            scores2 = []
-            for _, r in df.iterrows():
-                s2 = score_event(r, asset_class, custom)
-                scores2.append(s2)
+            scores2 = [score_event(r, asset_class, custom) for _, r in df.iterrows()]
             df["Score"] = scores2
             df["Signal"] = [classify_score(s2, custom) for s2 in scores2]
             df_view2 = df[view_cols].sort_values("Time")
-            st.success("Applied custom rules.")
+            st.success("Applied custom rules to the selected time window.")
             st.dataframe(df_view2, use_container_width=True)
         except Exception as e:
             st.error(f"Could not parse rules: {e}")
@@ -586,7 +592,8 @@ with colH:
 with colI:
     st.download_button("Download All Aspects Timeline CSV", asp_timeline_df.to_csv(index=False).encode(), file_name=f"aspects_timeline_{date_in}.csv")
 with colJ:
-    st.download_button("Download Data Analysis CSV", df_view.to_csv(index=False).encode(), file_name=f"signal_timeline_{symbol}_{date_in}.csv")
+    fname = f"signal_timeline_{symbol}_{date_in}_{start_t.strftime('%H%M')}-{end_t.strftime('%H%M')}.csv"
+    st.download_button("Download Data Analysis CSV", df_view.to_csv(index=False).encode(), file_name=fname)
 
 if USE_MOSEPH:
     st.caption("Note: MOSEPH fallback is active. For best precision, configure Swiss ephemeris files via swe.set_ephe_path().")
