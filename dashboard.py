@@ -5,6 +5,7 @@ import pytz
 import pandas as pd
 import streamlit as st
 
+# ---------------- Setup ----------------
 SWISSEPH_AVAILABLE = True
 try:
     import swisseph as swe
@@ -45,6 +46,31 @@ NAK_LORD = {"Ashwini":"Ketu","Bharani":"Venus","Krittika":"Sun","Rohini":"Moon",
     "Mula":"Ketu","Purva Ashadha":"Venus","Uttara Ashadha":"Sun","Shravana":"Moon","Dhanishta":"Mars","Shatabhisha":"Rahu",
     "Purva Bhadrapada":"Jupiter","Uttara Bhadrapada":"Saturn","Revati":"Mercury"}
 
+DEFAULT_RULES = {
+    "weights": {
+        "benefics": {"Jupiter": 2.0, "Venus": 1.5, "Moon": 1.0, "Mercury": 0.8},
+        "malefics": {"Saturn": -2.0, "Mars": -1.5, "Rahu": -1.5, "Ketu": -1.2},
+        "sun": 0.5
+    },
+    "aspect_multipliers": {"Trine": 1.0, "Sextile": 0.8, "Conjunction": 0.6, "Opposition": -0.9, "Square": -1.0},
+    "asset_bias": {
+        "NIFTY": {"Jupiter": +0.5, "Saturn": -0.3, "Mercury": +0.2},
+        "BANKNIFTY": {"Jupiter": +0.6, "Saturn": -0.5, "Mercury": +0.3},
+        "GOLD": {"Saturn": -0.6, "Jupiter": +0.4, "Venus": +0.2, "Rahu": +0.3},
+        "CRUDE": {"Mars": +0.6, "Saturn": -0.2, "Jupiter": +0.2},
+        "BTC": {"Rahu": +0.6, "Saturn": -0.4, "Jupiter": +0.2},
+        "DOW": {"Jupiter": +0.4, "Saturn": -0.3, "Mercury": +0.2}
+    },
+    "kp_weights": {
+        "star": {"Jupiter": +0.6, "Venus": +0.4, "Mercury": +0.2, "Moon": +0.2, "Sun": +0.1,
+                 "Saturn": -0.6, "Mars": -0.4, "Rahu": -0.5, "Ketu": -0.4},
+        "sub":  {"Jupiter": +0.8, "Venus": +0.5, "Mercury": +0.3, "Moon": +0.3, "Sun": +0.1,
+                 "Saturn": -0.8, "Mars": -0.6, "Rahu": -0.6, "Ketu": -0.5}
+    },
+    "thresholds": {"bullish": 1.0, "bearish": -1.0}
+}
+
+# -------------- Helpers --------------
 def safe_float(x, default=None):
     try: return float(x)
     except Exception: return default
@@ -66,10 +92,7 @@ def ecl_to_sign_deg(longitude):
     return ZODIAC_SIGNS[sign_index], deg_in_sign
 
 def deg_to_dms(deg):
-    d = int(deg)
-    m_float = abs(deg - d) * 60
-    m = int(m_float)
-    s = int(round((m_float - m) * 60))
+    d = int(deg); m_float = abs(deg - d) * 60; m = int(m_float); s = int(round((m_float - m) * 60))
     return f"{d:02d}°{m:02d}'{s:02d}\""
 
 def nakshatra_for(longitude):
@@ -117,8 +140,7 @@ def _extract_calc_array(out):
         return list(out)
     possible = []
     for k in ("longitude","latitude","distance","longitude_speed","lat_speed","dist_speed"):
-        if hasattr(out, k):
-            possible.append(getattr(out, k))
+        if hasattr(out, k): possible.append(getattr(out, k))
     return possible if possible else [None, None, None, None]
 
 def _calc_ut_standardized(jd_ut, body, flag_extra=0, use_moseph=False):
@@ -145,14 +167,12 @@ def sidereal_longitude(body, jd_ut, ayanamsa):
         ra = sidereal_longitude(swe.MEAN_NODE, jd_ut, ayanamsa)
         return normalize_angle(ra + 180.0)
     lon, lat, dist, speed = _try_calc_ut(jd_ut, body, flag_extra=0)
-    if lon is None:
-        return None
+    if lon is None: return None
     ay = swe.get_ayanamsa_ut(jd_ut)
     return normalize_angle(lon - ay)
 
 def refine_exact_time(body_a, body_b, target_angle, start_utc, tzname, ay_mode, tol_deg=1/60, max_iter=28):
-    left = start_utc - timedelta(hours=6)
-    right = start_utc + timedelta(hours=6)
+    left = start_utc - timedelta(hours=6); right = start_utc + timedelta(hours=6)
     swe.set_sid_mode(ay_mode, 0, 0)
     def angle_at(t):
         jd = julday_from_dt(t)
@@ -274,24 +294,7 @@ def intraday_kp_table(date_local, tzname="Asia/Kolkata", ay_mode=swe.SIDM_KRISHN
             cur = nxt
     return pd.DataFrame(rows).sort_values(["Date","Time","Planet"])
 
-# --- scoring, styling, sector funcs remain identical to prior build ---
-DEFAULT_RULES = {
-    "weights": {"benefics": {"Jupiter": 2.0, "Venus": 1.5, "Moon": 1.0, "Mercury": 0.8},
-                "malefics": {"Saturn": -2.0, "Mars": -1.5, "Rahu": -1.5, "Ketu": -1.2}, "sun": 0.5},
-    "aspect_multipliers": {"Trine": 1.0, "Sextile": 0.8, "Conjunction": 0.6, "Opposition": -0.9, "Square": -1.0},
-    "asset_bias": {"NIFTY": {"Jupiter": +0.5, "Saturn": -0.3, "Mercury": +0.2},
-                   "BANKNIFTY": {"Jupiter": +0.6, "Saturn": -0.5, "Mercury": +0.3},
-                   "GOLD": {"Saturn": -0.6, "Jupiter": +0.4, "Venus": +0.2, "Rahu": +0.3},
-                   "CRUDE": {"Mars": +0.6, "Saturn": -0.2, "Jupiter": +0.2},
-                   "BTC": {"Rahu": +0.6, "Saturn": -0.4, "Jupiter": +0.2},
-                   "DOW": {"Jupiter": +0.4, "Saturn": -0.3, "Mercury": +0.2}},
-    "kp_weights": {"star": {"Jupiter": +0.6, "Venus": +0.4, "Mercury": +0.2, "Moon": +0.2, "Sun": +0.1,
-                            "Saturn": -0.6, "Mars": -0.4, "Rahu": -0.5, "Ketu": -0.4},
-                   "sub":  {"Jupiter": +0.8, "Venus": +0.5, "Mercury": +0.3, "Moon": +0.3, "Sun": +0.1,
-                            "Saturn": -0.8, "Mars": -0.6, "Rahu": -0.6, "Ketu": -0.5}},
-    "thresholds": {"bullish": 1.0, "bearish": -1.0}
-}
-
+# -------- Scoring & styling --------
 def score_event(row, asset, rules=DEFAULT_RULES):
     A, B, aspect = row["Planet A"], row["Planet B"], row["Aspect"]
     w = rules["weights"]; mult = rules["aspect_multipliers"]; bias_map = rules["asset_bias"]
@@ -329,8 +332,8 @@ def style_signal_table(df):
     if df.empty: return df
     def color_row(row):
         sig = row.get("Signal","")
-        if sig == "Bullish": return ['background-color: #cfe8ff' for _ in row]
-        if sig == "Bearish": return ['background-color: #ffd6d6' for _ in row]
+        if sig == "Bullish": return ['background-color: #cfe8ff' for _ in row]  # blue
+        if sig == "Bearish": return ['background-color: #ffd6d6' for _ in row]  # red
         return ['']*len(row)
     return df.style.apply(color_row, axis=1)
 
@@ -352,20 +355,21 @@ def style_sector_table(df, current_sector=None):
         return [f'background-color: {base}' if base else '' for _ in row]
     return df.style.apply(color_row, axis=1)
 
+def make_rules_with_aspects(default_rules, trine, sextile, conj, opp, square):
+    r = {k: (v.copy() if isinstance(v, dict) else v) for k, v in default_rules.items()}
+    r['weights'] = default_rules['weights'].copy()
+    r['aspect_multipliers'] = default_rules['aspect_multipliers'].copy()
+    r['asset_bias'] = {k:v.copy() for k,v in default_rules['asset_bias'].items()}
+    r['kp_weights'] = {k:v.copy() for k,v in default_rules['kp_weights'].items()}
+    r['thresholds'] = default_rules['thresholds'].copy()
+    r['aspect_multipliers'].update({
+        'Trine': trine, 'Sextile': sextile, 'Conjunction': conj, 'Opposition': opp, 'Square': square
+    })
+    return r
 
-
-def proximity_weight(row):
-    """Higher weight when aspect is near exact; KP events get a fixed premium."""
-    if row.get("Aspect") == "KP (Moon Star/Sub change)":
-        return 1.2  # KP premium
-    exact = row.get("Exact°")
-    if exact in (0, 60, 90, 120, 180):
-        # already scored via score_event; we don't have raw offset here,
-        # so give a modest base weight; Moon involvement is implicitly in score_event
-        return 1.0
-    return 1.0
-
+# --- Score-based sector engine ---
 def sector_scores_for_window(sector_syms, asp_df, kp_df, tz_in, date_in, start_t, end_t, asset_class, kp_premium=1.2, rules=None):
+    rules = rules or DEFAULT_RULES
     tz = pytz.timezone(tz_in)
     start_local = tz.localize(datetime.combine(date_in, start_t))
     end_local = tz.localize(datetime.combine(date_in, end_t))
@@ -378,24 +382,19 @@ def sector_scores_for_window(sector_syms, asp_df, kp_df, tz_in, date_in, start_t
     dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
     dfK = dfK[(dfK["DT"] >= start_local) & (dfK["DT"] < end_local)].copy()
 
-    # Precompute numeric scores for aspect rows
     if not dfA.empty:
-        dfA["Score"] = [score_event(r, asset_class, rules or DEFAULT_RULES) for _, r in dfA.iterrows()]
-        dfA["w"] = [1.0]*len(dfA)  # we don't know exact proximity here, keep 1.0
+        dfA["Score"] = [score_event(r, asset_class, rules) for _, r in dfA.iterrows()]
+        dfA["w"] = 1.0
     else:
         dfA["Score"] = []; dfA["w"] = []
-    # KP-only rows
     if not dfK.empty:
-        dfK["Score"] = [score_kp_only(r, asset_class, rules or DEFAULT_RULES) for _, r in dfK.iterrows()]
-        dfK["w"] = [kp_premium]*len(dfK)  # KP premium (tunable)
+        dfK["Score"] = [score_kp_only(r, asset_class, rules) for _, r in dfK.iterrows()]
+        dfK["w"] = kp_premium
         dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
     else:
         dfK["Score"] = []; dfK["w"] = []
 
-    # Combined score stream (no need to duplicate per symbol; we reuse same astro stream for all symbols in sector)
     combined_scores = list(dfA["Score"]*dfA["w"]) + list(dfK["Score"]*dfK["w"])
-
-    # Sector aggregate: sum of signed scores, normalized per symbol
     if len(sector_syms) == 0:
         return 0.0, 0.0, 0.0
     total_score = float(sum(combined_scores))
@@ -414,24 +413,6 @@ def build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, 
     df = pd.DataFrame(rows).sort_values(["NetScore","Avg/Stock","Confidence"], ascending=[False,False,False]).reset_index(drop=True)
     return df
 
-
-def make_rules_with_aspects(default_rules, trine, sextile, conj, opp, square):
-    r = {k: (v.copy() if isinstance(v, dict) else v) for k, v in default_rules.items()}
-    # Deep copy nested dicts we rely on
-    r['weights'] = default_rules['weights'].copy()
-    r['aspect_multipliers'] = default_rules['aspect_multipliers'].copy()
-    r['asset_bias'] = {k:v.copy() for k,v in default_rules['asset_bias'].items()}
-    r['kp_weights'] = {k:v.copy() for k,v in default_rules['kp_weights'].items()}
-    r['thresholds'] = default_rules['thresholds'].copy()
-    r['aspect_multipliers'].update({
-        'Trine': trine,
-        'Sextile': sextile,
-        'Conjunction': conj,
-        'Opposition': opp,
-        'Square': square
-    })
-    return r
-
 # ---------------- UI ----------------
 st.set_page_config(page_title="Vedic Sidereal — KP Strict + Sector Ranking", layout="wide")
 st.title("🪐 Vedic Sidereal — Sector Ranking + KP Strict")
@@ -440,6 +421,7 @@ if not SWISSEPH_AVAILABLE:
     st.error("pyswisseph not installed here. Install locally: pip install pyswisseph streamlit pytz pandas")
     st.stop()
 
+# Global controls
 colA, colB, colC = st.columns(3)
 with colA:
     date_in = st.date_input("Select Date", value=pd.Timestamp.today().date(), key="date_global")
@@ -447,32 +429,61 @@ with colB:
     tz_in = st.text_input("Time Zone (IANA)", value="Asia/Kolkata", key="tz_global")
 with colC:
     strict_kp = st.checkbox("KP strict mode (Krishnamurti + 1-min Moon scan)", value=True, key="strict_global")
-
 ay_mode = swe.SIDM_KRISHNAMURTI if strict_kp else swe.SIDM_LAHIRI
 swe.set_sid_mode(ay_mode, 0, 0)
 
-
-with st.expander("⚖️ Weights — Aspect multipliers", expanded=False):
-    col_w1, col_w2, col_w3 = st.columns(3)
-    with col_w1:
-        trine_w = st.slider("Trine", -2.0, 2.0, float(DEFAULT_RULES["aspect_multipliers"]["Trine"]), 0.1)
-        sext_w  = st.slider("Sextile", -2.0, 2.0, float(DEFAULT_RULES["aspect_multipliers"]["Sextile"]), 0.1)
-    with col_w2:
-        conj_w  = st.slider("Conjunction", -2.0, 2.0, float(DEFAULT_RULES["aspect_multipliers"]["Conjunction"]), 0.1)
-        opp_w   = st.slider("Opposition", -2.0, 2.0, float(DEFAULT_RULES["aspect_multipliers"]["Opposition"]), 0.1)
-    with col_w3:
-        square_w= st.slider("Square", -2.0, 2.0, float(DEFAULT_RULES["aspect_multipliers"]["Square"]), 0.1)
-
-rules_current = make_rules_with_aspects(DEFAULT_RULES, trine_w, sext_w, conj_w, opp_w, square_w)
-
+# Defaults in session_state for settings
+if "kp_premium" not in st.session_state: st.session_state.kp_premium = 1.2
+if "net_threshold" not in st.session_state: st.session_state.net_threshold = 0.25
+if "aspect_weights" not in st.session_state:
+    st.session_state.aspect_weights = {
+        "Trine": DEFAULT_RULES["aspect_multipliers"]["Trine"],
+        "Sextile": DEFAULT_RULES["aspect_multipliers"]["Sextile"],
+        "Conjunction": DEFAULT_RULES["aspect_multipliers"]["Conjunction"],
+        "Opposition": DEFAULT_RULES["aspect_multipliers"]["Opposition"],
+        "Square": DEFAULT_RULES["aspect_multipliers"]["Square"],
+    }
 
 with st.spinner("Computing base timelines..."):
     asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, step_minutes=20)
     kp_moon_df = intraday_kp_table(date_in, tzname=tz_in, ay_mode=ay_mode, planets=("Moon",), step_minutes=1 if strict_kp else 5)
 
-tabs = st.tabs(["Sector Scanner", "Data Analysis", "Intraday KP Table"])
+tabs = st.tabs(["Settings", "Sector Scanner", "Data Analysis", "Intraday KP Table"])
 
+# -------- Settings Tab --------
 with tabs[0]:
+    st.subheader("⚙️ Settings")
+    s1, s2 = st.columns(2)
+    with s1:
+        st.session_state.kp_premium = st.slider("KP weight", min_value=0.5, max_value=2.0, value=float(st.session_state.kp_premium), step=0.1)
+    with s2:
+        st.session_state.net_threshold = st.slider("NetScore threshold (bull/bear)", min_value=0.0, max_value=2.0, value=float(st.session_state.net_threshold), step=0.05)
+
+    with st.expander("⚖️ Weights — Aspect multipliers", expanded=False):
+        col_w1, col_w2, col_w3 = st.columns(3)
+        with col_w1:
+            st.session_state.aspect_weights["Trine"] = st.slider("Trine", -2.0, 2.0, float(st.session_state.aspect_weights["Trine"]), 0.1)
+            st.session_state.aspect_weights["Sextile"] = st.slider("Sextile", -2.0, 2.0, float(st.session_state.aspect_weights["Sextile"]), 0.1)
+        with col_w2:
+            st.session_state.aspect_weights["Conjunction"] = st.slider("Conjunction", -2.0, 2.0, float(st.session_state.aspect_weights["Conjunction"]), 0.1)
+            st.session_state.aspect_weights["Opposition"] = st.slider("Opposition", -2.0, 2.0, float(st.session_state.aspect_weights["Opposition"]), 0.1)
+        with col_w3:
+            st.session_state.aspect_weights["Square"] = st.slider("Square", -2.0, 2.0, float(st.session_state.aspect_weights["Square"]), 0.1)
+
+    st.success("Settings updated. Switch to Sector Scanner / Analysis to see impact.")
+
+# Build rules_current from session state
+rules_current = make_rules_with_aspects(
+    DEFAULT_RULES,
+    st.session_state.aspect_weights["Trine"],
+    st.session_state.aspect_weights["Sextile"],
+    st.session_state.aspect_weights["Conjunction"],
+    st.session_state.aspect_weights["Opposition"],
+    st.session_state.aspect_weights["Square"],
+)
+
+# -------- Sector Scanner --------
+with tabs[1]:
     st.subheader("🏭 Sector Scanner — choose sector & symbol")
     DEFAULT_SECTORS = {
         "NIFTY50": ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","BHARTIARTL","ITC","HINDUNILVR","LT","SBIN"],
@@ -499,32 +510,31 @@ with tabs[0]:
         sectors = DEFAULT_SECTORS
         st.warning("Sector mapping parse failed; using defaults.")
 
-    
-s1, s2, s3 = st.columns([1,1,1])
-with s1:
-    start_t2 = st.time_input("Start Time", value=dtime(9,15), key="start_time_sector")
-with s2:
-    end_t2 = st.time_input("End Time", value=dtime(15,30), key="end_time_sector")
-with s3:
-    kp_premium = st.slider("KP weight", min_value=0.5, max_value=2.0, value=1.2, step=0.1, help="Extra weight for Moon KP events")
-net_threshold = st.slider("NetScore threshold (bull/bear)", min_value=0.0, max_value=2.0, value=0.25, step=0.05)
+    s1, s2 = st.columns(2)
+    with s1:
+        start_t2 = st.time_input("Start Time", value=dtime(9,15), key="start_time_sector")
+    with s2:
+        end_t2 = st.time_input("End Time", value=dtime(15,30), key="end_time_sector")
 
-rank_df = build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t2, end_t2, kp_premium=kp_premium, net_threshold=net_threshold, rules=rules_current)
-
+    rank_df = build_sector_overview(
+        sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t2, end_t2,
+        kp_premium=float(st.session_state.kp_premium),
+        net_threshold=float(st.session_state.net_threshold),
+        rules=rules_current
+    )
     st.markdown("**All sectors ranking (by NetScore)**")
     st.dataframe(style_sector_table(rank_df, current_sector=sector), use_container_width=True)
-    
-if not rank_df.empty:
-    c_bull, c_bear = st.columns(2)
-    with c_bull:
-        top_bullish = rank_df.iloc[0]
-        st.metric("Top Bullish Sector", f"{top_bullish['Sector']} (NetScore {int(top_bullish['NetScore'])})")
-    with c_bear:
-        worst = rank_df.sort_values("NetScore", ascending=True).iloc[0]
-        st.metric("Top Bearish Sector", f"{worst['Sector']} (NetScore {int(worst['NetScore'])})")
-else:
-    st.metric("Top Bullish Sector", "No data")
-    st.metric("Top Bearish Sector", "No data")
+    if not rank_df.empty:
+        c_bull, c_bear = st.columns(2)
+        with c_bull:
+            top_bullish = rank_df.iloc[0]
+            st.metric("Top Bullish Sector", f"{top_bullish['Sector']} (NetScore {int(top_bullish['NetScore'])})")
+        with c_bear:
+            worst = rank_df.sort_values("NetScore", ascending=True).iloc[0]
+            st.metric("Top Bearish Sector", f"{worst['Sector']} (NetScore {int(worst['NetScore'])})")
+    else:
+        st.metric("Top Bullish Sector", "No data")
+        st.metric("Top Bearish Sector", "No data")
 
     symbols = sectors.get(sector, [])
     symbol_sec = st.selectbox("Symbol", symbols, index=0 if symbols else None, disabled=(len(symbols)==0), key="sector_symbol")
@@ -537,11 +547,11 @@ else:
     def score_event_local(dfA, dfK, asset_class, sym, rules):
         scoresA = [score_event(r, asset_class, rules) for _, r in dfA.iterrows()]
         dfA["Score"] = scoresA
-        dfA["Signal"] = [classify_score(s, rules_current) for s in scoresA]
+        dfA["Signal"] = [classify_score(s, rules) for s in scoresA]
         dfA["Symbol"] = sym
         if not dfK.empty:
-            dfK["Score"] = [score_kp_only(r, asset_class, rules or DEFAULT_RULES) for _, r in dfK.iterrows()]
-            dfK["Signal"] = [classify_score(s, rules_current) for s in dfK["Score"]]
+            dfK["Score"] = [score_kp_only(r, asset_class, rules) for _, r in dfK.iterrows()]
+            dfK["Signal"] = [classify_score(s, rules) for s in dfK["Score"]]
             dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
             dfK_view = dfK.rename(columns={"Star Lord":"Moon Star Lord@Exact","Sub Lord":"Moon Sub-Lord@Exact","Nakshatra":"Moon Nakshatra@Exact"})
             dfK_view["Aspect"] = "KP (Moon Star/Sub change)"
@@ -578,7 +588,8 @@ else:
     else:
         st.info("No symbols configured for this sector.")
 
-with tabs[1]:
+# -------- Data Analysis --------
+with tabs[2]:
     st.subheader("📊 Data Analysis — Symbol-wise Bullish/Bearish Timeline")
     c1, c2, c3, c4 = st.columns([2,1,1,1])
     with c1:
@@ -597,11 +608,12 @@ with tabs[1]:
     end_local = tz.localize(datetime.combine(date_in, end_t))
     if end_local <= start_local: end_local = end_local + timedelta(days=1)
     dfA = dfA[(dfA["TimeLocal"] >= start_local) & (dfA["TimeLocal"] < end_local)].copy()
+
     dfK = kp_moon_df.copy()
     dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
     dfK = dfK[(dfK["DT"] >= start_local) & (dfK["DT"] < end_local)].copy()
 
-    scoresA = [score_event(r, asset_class, rules) for _, r in dfA.iterrows()]
+    scoresA = [score_event(r, asset_class, rules_current) for _, r in dfA.iterrows()]
     dfA["Score"] = scoresA
     dfA["Signal"] = [classify_score(s, rules_current) for s in scoresA]
     dfA["Symbol"] = symbol.upper()
@@ -609,7 +621,7 @@ with tabs[1]:
     dfA_view = dfA[view_colsA]
 
     if not dfK.empty:
-        dfK["Score"] = [score_kp_only(r, asset_class, rules or DEFAULT_RULES) for _, r in dfK.iterrows()]
+        dfK["Score"] = [score_kp_only(r, asset_class, rules_current) for _, r in dfK.iterrows()]
         dfK["Signal"] = [classify_score(s, rules_current) for s in dfK["Score"]]
         dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
         dfK_view = dfK.rename(columns={"Star Lord":"Moon Star Lord@Exact","Sub Lord":"Moon Sub-Lord@Exact","Nakshatra":"Moon Nakshatra@Exact"})
@@ -625,6 +637,7 @@ with tabs[1]:
     combined = combined.sort_values("Time")
     st.dataframe(style_signal_table(combined), use_container_width=True)
 
-with tabs[2]:
+# -------- Intraday KP --------
+with tabs[3]:
     st.subheader("📄 Intraday KP Table (Moon)")
     st.dataframe(kp_moon_df, use_container_width=True)
