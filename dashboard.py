@@ -1083,7 +1083,7 @@ with tabs[5]:
             else:
                 st.info("No data for this window.")
 
-
+ 
 
     # Calendar heatmap by top-sector NetScore (pandas Styler; no extra installs)
     disp_df, styled = build_calendar_table(month_days, month_df[['Date','NetScore']])
