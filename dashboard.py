@@ -1,7 +1,6 @@
 
 # astro_transit_app.py
-# Vedic Sidereal Transits — Full Timelines + KP + Intraday KP (All Planets) + Data Analysis
-# Safe against NameError; functions defined before UI; all tab dataframes initialized.
+# Vedic Sidereal Transits — All Planets KP + Strict KP Mode + Reference Highlighting + Analysis
 
 import math
 from datetime import datetime, timedelta, time as dtime
@@ -171,7 +170,6 @@ def sidereal_longitude(body, jd_ut, ayanamsa):
 
 def declination(body, jd_ut):
     lon, lat, dist, speed = _try_calc_ut(jd_ut, body, flag_extra=swe.FLG_EQUATORIAL)
-    # lon=RA, lat=Decl in this mode
     return lat
 
 # ---------- Computations ----------
@@ -193,21 +191,6 @@ def planet_positions_for_date(date_local, tzname="Asia/Kolkata", ayanamsa_mode=s
         rows.append({"Planet": name, "Longitude": round(lon, 4), "Sign": sign,
                      "Deg°": deg_to_dms(deg_in_sign), "Nakshatra": f"{nak}-{pada}"})
     return pd.DataFrame(rows)
-
-def detect_aspects(positions, orb_major=3.0, orb_moon=6.0):
-    pos = positions[pd.to_numeric(positions["Longitude"], errors="coerce").notna()].reset_index(drop=True)
-    aspects = []
-    for i in range(len(pos)):
-        for j in range(i+1, len(pos)):
-            p1 = pos.iloc[i]; p2 = pos.iloc[j]
-            diff = min_angle_diff(p1["Longitude"], p2["Longitude"])
-            if diff is None: continue
-            for exact, name in ASPECTS.items():
-                orb = orb_moon if ("Moon" in (p1["Planet"], p2["Planet"])) else orb_major
-                if abs(diff - exact) <= orb:
-                    aspects.append({"Planet A": p1["Planet"], "Planet B": p2["Planet"],
-                                    "Aspect": name, "Exact°": exact, "Deviation°": round(diff-exact,3)})
-    return pd.DataFrame(aspects)
 
 def refine_exact_time(body_a, body_b, target_angle, start_utc, tzname, ay_mode, tol_deg=1/60, max_iter=28):
     left = start_utc - timedelta(hours=6)
@@ -251,8 +234,8 @@ def planetary_aspect_timeline(date_local, tzname="Asia/Kolkata", ay_mode=swe.SID
                 A,B = names[i], names[j]
                 la,lb = longs.get(A), longs.get(B)
                 if la is None or lb is None: continue
-                diff = min_angle_diff(la, lb)
                 for exact,a_name in ASPECTS.items():
+                    diff = min_angle_diff(la, lb)
                     orb = orb_moon if ("Moon" in (A,B)) else orb_major
                     if diff is not None and abs(diff-exact) <= orb:
                         key = (a_name,A,B)
@@ -281,7 +264,7 @@ def planetary_aspect_timeline(date_local, tzname="Asia/Kolkata", ay_mode=swe.SID
 def intraday_kp_table(date_local, tzname="Asia/Kolkata", ay_mode=swe.SIDM_LAHIRI,
                       planets=("Moon","Mercury","Venus","Sun","Mars","Jupiter","Saturn","Rahu","Ketu"),
                       step_minutes=10):
-    """Times when Star/Sub-Lord changes for selected planets (ALL supported)."""
+    """Times when Star/Sub-Lord changes for selected planets."""
     swe.set_sid_mode(ay_mode, 0, 0)
     try: swe.set_ephe_path("/usr/share/ephe")
     except Exception: pass
@@ -296,10 +279,8 @@ def intraday_kp_table(date_local, tzname="Asia/Kolkata", ay_mode=swe.SIDM_LAHIRI
         jd0 = julday_from_dt(cur)
         lon0 = sidereal_longitude(body, jd0, ay_mode)
         if lon0 is None: continue
-        sign0, deg0 = ecl_to_sign_deg(lon0)
         nak0, pada0, star0, sub0 = kp_sublord_of_longitude(lon0)
         speed0 = _try_calc_ut(jd0, body)[3]
-        motion0 = "R" if speed0 is not None and speed0 < 0 else "D"
         while cur < end_utc:
             nxt = cur + timedelta(minutes=step_minutes)
             jd = julday_from_dt(nxt)
@@ -399,112 +380,110 @@ def classify_score(score, rules=DEFAULT_RULES):
     if score <= rules["thresholds"]["bearish"]: return "Bearish"
     return "Neutral/Volatile"
 
+# ------ Reference parsing & highlighting ------
+def parse_reference_lines(txt):
+    """Accepts pasted lines like 'Mo 2025-08-11 03:15:09' etc.; returns set of (Planet, 'HH:MM') pairs."""
+    refs = set()
+    for line in txt.splitlines():
+        parts = line.strip().split()
+        if not parts: continue
+        try:
+            # Expect at least Planet, Date, Time
+            p = parts[0]
+            for i in range(1, len(parts)-1):
+                if ":" in parts[i] and "-" in parts[i-1]:
+                    date_s = parts[i-1]
+                    time_s = parts[i]
+                    hhmm = time_s[:5]  # HH:MM
+                    refs.add((p, hhmm))
+                    break
+        except Exception:
+            continue
+    return refs
+
+def mark_reference_matches(df, refs):
+    if df.empty or not refs:
+        df["Match"] = ""
+        return df.style.hide_index()
+    def is_match(row):
+        t = row.get("Time","")[:5]
+        p = row.get("Planet","")[:2]
+        return (p, t) in refs
+    df["Match"] = df.apply(lambda r: "MATCH" if is_match(r) else "", axis=1)
+    def highlight(s):
+        return ['background-color: #e6ffe6' if v=="MATCH" else '' for v in s]
+    return df.style.apply(highlight, subset=["Match"]).hide_index()
+
 # ---------- UI ----------
-st.set_page_config(page_title="Vedic Sidereal Transits — All Planets KP + Analysis", layout="wide")
-st.title("🪐 Vedic Sidereal Transit Explorer — All Planets KP + Data Analysis")
+st.set_page_config(page_title="Vedic Sidereal Transits — Strict KP Mode", layout="wide")
+st.title("🪐 Vedic Sidereal Transit Explorer — Strict KP Mode + Intraday KP")
 
 if not SWISSEPH_AVAILABLE:
     st.error("pyswisseph not installed here. Install locally: pip install pyswisseph streamlit pytz pandas")
     st.stop()
 
-colA, colB, colC = st.columns(3)
+# Global controls
+colA, colB, colC, colD = st.columns(4)
 with colA:
     date_in = st.date_input("Select Date", value=pd.Timestamp.today().date())
 with colB:
     tz_in = st.text_input("Time Zone (IANA)", value="Asia/Kolkata")
 with colC:
-    ay_choice = st.selectbox("Ayanamsa", ["Lahiri (default)","Raman","Krishnamurti","True Citra"])
-ayanamsa_map = {
-    "Lahiri (default)": swe.SIDM_LAHIRI,
-    "Raman": swe.SIDM_RAMAN,
-    "Krishnamurti": swe.SIDM_KRISHNAMURTI,
-    "True Citra": swe.SIDM_TRUE_CITRA
-}
-ay_mode = ayanamsa_map[ay_choice]
+    ay_choice = st.selectbox("Ayanamsa", ["Lahiri","Raman","Krishnamurti","True Citra"], index=2)
+ayanamsa_map = {"Lahiri": swe.SIDM_LAHIRI, "Raman": swe.SIDM_RAMAN, "Krishnamurti": swe.SIDM_KRISHNAMURTI, "True Citra": swe.SIDM_TRUE_CITRA}
+with colD:
+    strict_kp = st.checkbox("KP strict mode (force Krishnamurti + 1‑min Moon scan)", value=True)
+
+if strict_kp:
+    ay_mode = swe.SIDM_KRISHNAMURTI
+else:
+    ay_mode = ayanamsa_map[ay_choice]
 swe.set_sid_mode(ay_mode, 0, 0)
 
-col1, col2 = st.columns(2)
-with col1:
-    orb_major = st.slider("Orb for aspects (most planets) [°]", 1.0, 6.0, 3.0, 0.5)
-with col2:
-    orb_moon = st.slider("Orb for Moon aspects [°]", 2.0, 10.0, 6.0, 0.5)
-
-st.markdown("---")
-tabs = st.tabs([
-    "Positions", "Aspects (snapshot)", "Moon Aspects Timeline", "Moon Ingress",
-    "Moon KP Sub-lord", "All Planet Aspect Timeline", "Intraday KP Table", "Data Analysis"
-])
-
-# Initialize holders to avoid NameError later
-pos_df = pd.DataFrame(); asp_df = pd.DataFrame(); moon_df = pd.DataFrame()
-ingress_df = pd.DataFrame(); kp_df = pd.DataFrame(); asp_timeline_df = pd.DataFrame()
-kp_intraday_df = pd.DataFrame()
+# Tabs
+tabs = st.tabs(["Intraday KP Table", "Data Analysis"])
 
 with tabs[0]:
-    st.subheader("Planetary Positions (Sidereal)")
-    pos_df = planet_positions_for_date(date_in, tzname=tz_in, ayanamsa_mode=ay_mode)
-    st.dataframe(pos_df, use_container_width=True)
-
-with tabs[1]:
-    st.subheader("Planetary Aspects (snapshot around local noon)")
-    if pos_df.empty: pos_df = planet_positions_for_date(date_in, tzname=tz_in, ayanamsa_mode=ay_mode)
-    asp_df = detect_aspects(pos_df, orb_major=orb_major, orb_moon=orb_moon)
-    st.dataframe(asp_df.sort_values(by=["Aspect","Planet A"]) if not asp_df.empty else asp_df, use_container_width=True)
-
-with tabs[2]:
-    st.subheader("🌙 Moon Aspects Timeline (exact times + KP at exact moment)")
-    with st.spinner("Computing Moon aspects across the day..."):
-        asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, orb_major=orb_major, orb_moon=orb_moon, step_minutes=20)
-        moon_df = asp_timeline_df[(asp_timeline_df["Planet A"]=="Moon") | (asp_timeline_df["Planet B"]=="Moon")].reset_index(drop=True)
-    st.dataframe(moon_df, use_container_width=True)
-
-with tabs[3]:
-    st.subheader("🌗 Moon Ingress (Sign & Nakshatra)")
-    with st.spinner("Scanning ingress events..."):
-        # Re-use moon_df timings to avoid recompute
-        ingress_df = pd.DataFrame()  # placeholder if you add ingress scanner back
-    st.info("Ingress scanner omitted in this condensed build. Can re-enable on request.")
-
-with tabs[4]:
-    st.subheader("🧭 KP Sub-lord Timeline (Moon)")
-    with st.spinner("Calculating KP sub-lord changes..."):
-        # quick Moon-only KP change finder using intraday_kp_table
-        kp_df = intraday_kp_table(date_in, tzname=tz_in, ay_mode=ay_mode, planets=("Moon",), step_minutes=5)
-    st.dataframe(kp_df, use_container_width=True)
-
-with tabs[5]:
-    st.subheader("🕒 All Planet Aspect Timeline (exact times for all pairs)")
-    if asp_timeline_df.empty:
-        with st.spinner("Computing aspect timeline for all planets..."):
-            asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, orb_major=orb_major, orb_moon=orb_moon, step_minutes=20)
-    st.dataframe(asp_timeline_df, use_container_width=True)
-
-with tabs[6]:
     st.subheader("📄 Intraday KP Table (All Planets)")
     all_names = [p[0] for p in PLANETS]
-    sel_planets = st.multiselect("Planets", all_names, default=all_names)
-    step = st.slider("Detection granularity (minutes)", 2, 30, 10, 1)
+    default_sel = all_names
+    sel_planets = st.multiselect("Planets", all_names, default=default_sel)
+    step_default = 1 if strict_kp and ("Moon" in sel_planets) else 10
+    step = st.slider("Detection granularity (minutes)", 1, 30, step_default, 1)
+
+    ref_txt = st.text_area("Paste reference lines (optional) to highlight matches — e.g., 'Mo 2025-08-11 03:15:09 ...'",
+                           value="", height=120)
+
     with st.spinner("Building intraday KP change table..."):
         kp_intraday_df = intraday_kp_table(date_in, tzname=tz_in, ay_mode=ay_mode, planets=tuple(sel_planets), step_minutes=step)
-    st.dataframe(kp_intraday_df, use_container_width=True)
 
-with tabs[7]:
+    refs = parse_reference_lines(ref_txt)
+    st.dataframe(kp_intraday_df if not refs else kp_intraday_df.style.apply(
+        lambda s: ['background-color: #e6ffe6' if (s.name is not None and isinstance(s.name, int) and kp_intraday_df.iloc[s.name]["Time"][:5] in {t for (p,t) in refs if kp_intraday_df.iloc[s.name]["Planet"].startswith(p)} ) else '' for _ in s]
+    ), use_container_width=True)
+
+    st.download_button("Download KP Table CSV", kp_intraday_df.to_csv(index=False).encode(),
+                       file_name=f"kp_intraday_{date_in}.csv")
+
+with tabs[1]:
     st.subheader("📊 Data Analysis — Symbol-wise Bullish/Bearish Timeline")
     c1, c2, c3, c4 = st.columns([2,1,1,1])
     with c1:
-        symbol = st.text_input("Symbol (any: NIFTY, BANKNIFTY, GOLD, CRUDE, BTC, etc.)", value="NIFTY")
+        symbol = st.text_input("Symbol", value="NIFTY")
     with c2:
-        asset_class = st.selectbox("Asset Class (bias preset)", ["NIFTY","BANKNIFTY","GOLD","CRUDE","BTC","DOW","OTHER"], index=0)
+        asset_class = st.selectbox("Asset Class", ["NIFTY","BANKNIFTY","GOLD","CRUDE","BTC","DOW","OTHER"], index=0)
     with c3:
         start_t = st.time_input("Start Time", value=dtime(9,15))
     with c4:
         end_t = st.time_input("End Time", value=dtime(15,30))
 
-    with st.spinner("Scoring events for the selected window..."):
-        if asp_timeline_df.empty:
-            asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, orb_major=orb_major, orb_moon=orb_moon, step_minutes=20)
-        if kp_intraday_df.empty:
-            kp_intraday_df = intraday_kp_table(date_in, tzname=tz_in, ay_mode=ay_mode, planets=tuple([p[0] for p in PLANETS]), step_minutes=10)
+    # Build aspect timeline using current ayanamsa (strict KP locks to Krishnamurti)
+    with st.spinner("Computing signals..."):
+        asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode,
+                                                    orb_major=3.0, orb_moon=6.0, step_minutes=20)
+        # KP events (Moon only) with strict 1-min if strict_kp
+        moon_step = 1 if strict_kp else 5
+        kp_intraday_df = intraday_kp_table(date_in, tzname=tz_in, ay_mode=ay_mode, planets=("Moon",), step_minutes=moon_step)
 
         tz = pytz.timezone(tz_in)
         dfA = asp_timeline_df.copy()
@@ -518,7 +497,7 @@ with tabs[7]:
         dfK = kp_intraday_df.copy()
         dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"])
         dfK["DT"] = dfK["DT"].apply(lambda x: tz.localize(x))
-        maskK = (dfK["DT"] >= start_local) & (dfK["DT"] < end_local) & (dfK["Planet"]=="Moon")
+        maskK = (dfK["DT"] >= start_local) & (dfK["DT"] < end_local)
         dfK = dfK[maskK].copy()
 
         scoresA = [score_event(r, asset_class, DEFAULT_RULES) for _, r in dfA.iterrows()]
@@ -550,7 +529,6 @@ with tabs[7]:
         combined = combined.sort_values("Time")
         st.dataframe(combined, use_container_width=True)
 
-        # summary
         colx, coly, colz = st.columns(3)
         with colx: st.metric("Bullish windows", int((combined["Signal"]=="Bullish").sum()))
         with coly: st.metric("Bearish windows", int((combined["Signal"]=="Bearish").sum()))
@@ -561,6 +539,3 @@ with tabs[7]:
             combined.to_csv(index=False).encode(),
             file_name=f"signals_{symbol}_{date_in}_{start_t.strftime('%H%M')}-{end_t.strftime('%H%M')}.csv"
         )
-
-if USE_MOSEPH:
-    st.caption("Note: MOSEPH fallback is active. For best precision, configure Swiss ephemeris files via swe.set_ephe_path().")
