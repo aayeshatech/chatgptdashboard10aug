@@ -920,7 +920,7 @@ with tabs[4]:
         for d in days_py:
             rdf = rank_for_single_date(d, sectors_w, tz_in, w_start_t, w_end_t,
                                        st.session_state.kp_premium, st.session_state.net_threshold,
-                                       RULES_CURRENT, ay_mode, strict_kp)
+                                       get_rules(), ay_mode, strict_kp)
             if rdf.empty:
                 rows.append({"Date": str(d), "Top Bullish": "-", "NetScore": 0, "Top Bearish": "-", "BearScore": 0})
             else:
@@ -931,7 +931,7 @@ with tabs[4]:
     st.dataframe(week_df, use_container_width=True)
 
     with st.expander("🔭 Next 7 Days — Major Transits", expanded=False):
-        cards = build_transit_cards_for_range(days_py[0], 7, tz_in, ay_mode, strict_kp, sectors_w, w_start_t, w_end_t, RULES_CURRENT, st.session_state.kp_premium, st.session_state.net_threshold)
+        cards = build_transit_cards_for_range(days_py[0], 7, tz_in, ay_mode, strict_kp, sectors_w, w_start_t, w_end_t, get_rules(), st.session_state.kp_premium, st.session_state.net_threshold)
         
 st.markdown("**Upcoming planetary movements affecting sectors:**")
 filt1, filt2, filt3 = st.columns([2,2,1])
@@ -963,12 +963,12 @@ render_cards(cards, "Upcoming planetary movements affecting sectors:")
             asp_type = parts[1].capitalize() if len(parts) > 1 else "Conjunction"
             days_m = _duration_days(asp_type)
             st.caption(f"Window: {sel_m['date']} for ~{days_m} days")
-            rank_win_m, meta_m = analyze_transit_window(sel_m['date'], days_m, sectors_m, tz_in, m_start_t, m_end_t, RULES_CURRENT, st.session_state.kp_premium, st.session_state.net_threshold, ay_mode, strict_kp)
+            rank_win_m, meta_m = analyze_transit_window(sel_m['date'], days_m, sectors_m, tz_in, m_start_t, m_end_t, get_rules(), st.session_state.kp_premium, st.session_state.net_threshold, ay_mode, strict_kp)
             if not rank_win_m.empty:
                 st.markdown("**Sector ranking during transit window**")
                 st.dataframe(rank_win_m[['Sector','TotalNet','Avg/Stock','Confidence']], use_container_width=True)
                 sec_choice_m = st.selectbox("Sector for stock breakdown", rank_win_m['Sector'].tolist(), key="monthly_transit_sector_choice")
-                stock_df_m = stock_breakdown_for_sector_over_window(sec_choice_m, sectors_m, sel_m['date'], days_m, tz_in, m_start_t, m_end_t, RULES_CURRENT, st.session_state.kp_premium, ay_mode, strict_kp)
+                stock_df_m = stock_breakdown_for_sector_over_window(sec_choice_m, sectors_m, sel_m['date'], days_m, tz_in, m_start_t, m_end_t, get_rules(), st.session_state.kp_premium, ay_mode, strict_kp)
                 st.markdown(f"**Stocks in {sec_choice_m} over transit window**")
                 st.dataframe(stock_df_m, use_container_width=True)
             else:
@@ -985,13 +985,13 @@ render_cards(cards, "Upcoming planetary movements affecting sectors:")
             days = _duration_days(asp_type)
             st.caption(f"Window: {sel['date']} for ~{days} days")
             # Sector ranking for the transit window
-            rank_win, meta = analyze_transit_window(sel['date'], days, sectors_w, tz_in, w_start_t, w_end_t, RULES_CURRENT, st.session_state.kp_premium, st.session_state.net_threshold, ay_mode, strict_kp)
+            rank_win, meta = analyze_transit_window(sel['date'], days, sectors_w, tz_in, w_start_t, w_end_t, get_rules(), st.session_state.kp_premium, st.session_state.net_threshold, ay_mode, strict_kp)
             if not rank_win.empty:
                 st.markdown("**Sector ranking during transit window**")
                 st.dataframe(rank_win[['Sector','TotalNet','Avg/Stock','Confidence']], use_container_width=True)
                 # Drilldown sector -> stocks
                 sec_choice = st.selectbox("Sector for stock breakdown", rank_win['Sector'].tolist(), key="weekly_transit_sector_choice")
-                stock_df = stock_breakdown_for_sector_over_window(sec_choice, sectors_w, sel['date'], days, tz_in, w_start_t, w_end_t, RULES_CURRENT, st.session_state.kp_premium, ay_mode, strict_kp)
+                stock_df = stock_breakdown_for_sector_over_window(sec_choice, sectors_w, sel['date'], days, tz_in, w_start_t, w_end_t, get_rules(), st.session_state.kp_premium, ay_mode, strict_kp)
                 st.markdown(f"**Stocks in {sec_choice} over transit window**")
                 st.dataframe(stock_df, use_container_width=True)
             else:
@@ -1082,7 +1082,7 @@ with tabs[5]:
         for d in month_days:
             rdf = rank_for_single_date(d, sectors_m, tz_in, m_start_t, m_end_t,
                                        st.session_state.kp_premium, st.session_state.net_threshold,
-                                       RULES_CURRENT, ay_mode, strict_kp)
+                                       get_rules(), ay_mode, strict_kp)
             if rdf.empty:
                 rows.append({"Date": str(d), "Top Bullish": "-", "NetScore": 0, "Top Bearish": "-", "BearScore": 0})
             else:
@@ -1092,69 +1092,58 @@ with tabs[5]:
     month_df = pd.DataFrame(rows)
     st.dataframe(month_df, use_container_width=True)
 
-    with st.expander("🔭 This Month — Major Transits", expanded=False):
-        cards = build_transit_cards_for_range(month_days[0], len(month_days), tz_in, ay_mode, strict_kp, sectors_m, m_start_t, m_end_t, RULES_CURRENT, st.session_state.kp_premium, st.session_state.net_threshold)
-        
-st.markdown("**Upcoming planetary movements affecting sectors:**")
-filt1, filt2, filt3 = st.columns([2,2,1])
-with filt1:
-    planets_pick = st.multiselect("Planets", ['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'], default=['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'], key="weekly_planets_filter")
-with filt2:
-    aspects_pick = st.multiselect("Aspects", ['Conjunction','Opposition','Square','Trine','Sextile'], default=['Conjunction','Opposition','Square','Trine','Sextile'], key="weekly_aspects_filter")
-with filt3:
-    per_day = st.slider("Max/day", 1, 5, 3, key="weekly_cards_per_day")
-cards = build_transit_cards_for_range(days_py[0], 7, tz_in, ay_mode, strict_kp, sectors_w, w_start_t, w_end_t, get_rules(), st.session_state.kp_premium, st.session_state.net_threshold, planets_filter=planets_pick, aspects_filter=aspects_pick, per_day_limit=per_day)
-render_cards(cards, "Upcoming planetary movements affecting sectors:")
+    
+with st.expander("🔭 This Month — Major Transits", expanded=False):
+    st.markdown("**Upcoming planetary movements affecting sectors:**")
+    col_f1, col_f2, col_f3 = st.columns([2,2,1])
+    with col_f1:
+        planets_pick_m = st.multiselect("Planets", ['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'],
+                                        default=['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'],
+                                        key="monthly_planets_filter")
+    with col_f2:
+        aspects_pick_m = st.multiselect("Aspects", ['Conjunction','Opposition','Square','Trine','Sextile'],
+                                        default=['Conjunction','Opposition','Square','Trine','Sextile'],
+                                        key="monthly_aspects_filter")
+    with col_f3:
+        per_day_m = st.slider("Max/day", 1, 5, 3, key="monthly_cards_per_day")
 
-        if cards:
-            options_m = [f"{c['date']} — {c['event']}" for c in cards]
-            pick_m = st.selectbox("Select a transit", options_m, key="monthly_transit_pick")
-            sel_m = cards[options_m.index(pick_m)]
-            parts = sel_m['event'].split()
-            asp_type = parts[1].capitalize() if len(parts) > 1 else "Conjunction"
-            days_m = _duration_days(asp_type)
-            st.caption(f"Window: {sel_m['date']} for ~{days_m} days")
-            rank_win_m, meta_m = analyze_transit_window(sel_m['date'], days_m, sectors_m, tz_in, m_start_t, m_end_t, RULES_CURRENT, st.session_state.kp_premium, st.session_state.net_threshold, ay_mode, strict_kp)
-            if not rank_win_m.empty:
-                st.markdown("**Sector ranking during transit window**")
-                st.dataframe(rank_win_m[['Sector','TotalNet','Avg/Stock','Confidence']], use_container_width=True)
-                sec_choice_m = st.selectbox("Sector for stock breakdown", rank_win_m['Sector'].tolist(), key="monthly_transit_sector_choice")
-                stock_df_m = stock_breakdown_for_sector_over_window(sec_choice_m, sectors_m, sel_m['date'], days_m, tz_in, m_start_t, m_end_t, RULES_CURRENT, st.session_state.kp_premium, ay_mode, strict_kp)
-                st.markdown(f"**Stocks in {sec_choice_m} over transit window**")
-                st.dataframe(stock_df_m, use_container_width=True)
-            else:
-                st.info("No data for this window.")
+    cards = build_transit_cards_for_range(month_days[0], len(month_days), tz_in, ay_mode, strict_kp,
+                                          sectors_m, m_start_t, m_end_t, get_rules(),
+                                          st.session_state.kp_premium, st.session_state.net_threshold,
+                                          planets_filter=planets_pick_m, aspects_filter=aspects_pick_m, per_day_limit=per_day_m)
+    render_cards(cards, "Upcoming planetary movements affecting sectors:")
 
-        # Select a transit to analyze
-        if cards:
-            options = [f"{c['date']} — {c['event']}" for c in cards]
-            pick = st.selectbox("Select a transit", options, key="weekly_transit_pick")
-            sel = cards[options.index(pick)]
-            # Estimate days from aspect type in text (simple parse)
-            parts = sel['event'].split()
-            asp_type = parts[1].capitalize() if len(parts) > 1 else "Conjunction"
-            days = _duration_days(asp_type)
-            st.caption(f"Window: {sel['date']} for ~{days} days")
-            # Sector ranking for the transit window
-            rank_win, meta = analyze_transit_window(sel['date'], days, sectors_w, tz_in, w_start_t, w_end_t, RULES_CURRENT, st.session_state.kp_premium, st.session_state.net_threshold, ay_mode, strict_kp)
-            if not rank_win.empty:
-                st.markdown("**Sector ranking during transit window**")
-                st.dataframe(rank_win[['Sector','TotalNet','Avg/Stock','Confidence']], use_container_width=True)
-                # Drilldown sector -> stocks
-                sec_choice = st.selectbox("Sector for stock breakdown", rank_win['Sector'].tolist(), key="weekly_transit_sector_choice")
-                stock_df = stock_breakdown_for_sector_over_window(sec_choice, sectors_w, sel['date'], days, tz_in, w_start_t, w_end_t, RULES_CURRENT, st.session_state.kp_premium, ay_mode, strict_kp)
-                st.markdown(f"**Stocks in {sec_choice} over transit window**")
-                st.dataframe(stock_df, use_container_width=True)
-            else:
-                st.info("No data for this window.")
+    if cards:
+        options_m = [f"{c['date']} — {c['event']}" for c in cards]
+        pick_m = st.selectbox("Select a transit", options_m, key="monthly_transit_pick")
+        sel_m = cards[options_m.index(pick_m)]
+        # Determine duration from aspect + bodies
+        parts = sel_m['event'].split()
+        asp_type = parts[1].capitalize() if len(parts) > 1 else "Conjunction"
+        A = parts[0].capitalize() if parts else "Moon"
+        B = parts[-1].capitalize() if parts else "Saturn"
+        days_m = _duration_days_for_bodies(asp_type, A, B)
+        st.caption(f"Window: {sel_m['date']} for ~{max(1, days_m-1)}–{days_m+1} days")
 
+        # Sector ranking aggregated across the transit window
+        rank_win_m, meta_m = analyze_transit_window(sel_m['date'], days_m, sectors_m, tz_in, m_start_t, m_end_t,
+                                                    get_rules(), st.session_state.kp_premium, st.session_state.net_threshold,
+                                                    ay_mode, strict_kp)
+        if not rank_win_m.empty:
+            st.markdown("**Sector ranking during transit window**")
+            st.dataframe(rank_win_m[['Sector','TotalNet','Avg/Stock','Confidence']], use_container_width=True)
 
+            sec_choice_m = st.selectbox("Sector for stock breakdown", rank_win_m['Sector'].tolist(),
+                                        key="monthly_transit_sector_choice")
+            stock_df_m = stock_breakdown_for_sector_over_window(sec_choice_m, sectors_m, sel_m['date'], days_m,
+                                                                tz_in, m_start_t, m_end_t, get_rules(),
+                                                                st.session_state.kp_premium, ay_mode, strict_kp)
+            st.markdown(f"**Stocks in {sec_choice_m} over transit window**")
+            st.dataframe(stock_df_m, use_container_width=True)
+        else:
+            st.info("No data for this window.")
+c1, c2 = st.columns(2)
 
-    # Calendar heatmap by top-sector NetScore (pandas Styler; no extra installs)
-    disp_df, styled = build_calendar_table(month_days, month_df[['Date','NetScore']])
-    st.dataframe(styled, use_container_width=True)
-
-    c1, c2 = st.columns(2)
     with c1:
         day_pick_m = st.selectbox("Pick a date", [str(d) for d in month_days], key="monthly_day_pick")
     with c2:
