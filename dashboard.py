@@ -1,27 +1,19 @@
 
 # astro_transit_app.py
-# Streamlit app: Vedic Sidereal Astro Transit + Aspects + Moon Timeline
+# Streamlit app: Vedic Sidereal Astro Transit + Aspects + Moon Timeline (+ Ingress + Telegram format)
 # Author: ChatGPT
 #
-# Requirements (install locally):
+# Requirements:
 #   pip install streamlit pyswisseph pytz pandas
 # Run:
 #   streamlit run astro_transit_app.py
-#
-# Notes:
-# - Uses Lahiri ayanamsa by default.
-# - Finds aspects (0, 60, 90, 120, 180) with user-set orbs.
-# - Computes Moon aspect *exact times* for the selected date using a fast search.
-# - Times are shown in the chosen timezone (default: Asia/Kolkata).
 
 import math
 from datetime import datetime, timedelta, timezone
 import pytz
 import pandas as pd
-
 import streamlit as st
 
-# Try to import Swiss Ephemeris (preferred). If missing, show a helpful message.
 SWISSEPH_AVAILABLE = True
 try:
     import swisseph as swe
@@ -30,7 +22,6 @@ except Exception as e:
     swe = None
     _import_err = e
 
-# ------------- Constants -------------
 PLANETS = [
     ('Sun', swe.SUN if SWISSEPH_AVAILABLE else 0),
     ('Moon', swe.MOON if SWISSEPH_AVAILABLE else 1),
@@ -39,8 +30,8 @@ PLANETS = [
     ('Mars', swe.MARS if SWISSEPH_AVAILABLE else 4),
     ('Jupiter', swe.JUPITER if SWISSEPH_AVAILABLE else 5),
     ('Saturn', swe.SATURN if SWISSEPH_AVAILABLE else 6),
-    ('Rahu', swe.MEAN_NODE if SWISSEPH_AVAILABLE else 7),   # Mean Node (Rahu)
-    ('Ketu', -1),  # derived = Rahu + 180
+    ('Rahu', swe.MEAN_NODE if SWISSEPH_AVAILABLE else 7),
+    ('Ketu', -1),
 ]
 
 ZODIAC_SIGNS = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
@@ -50,19 +41,9 @@ NAKSHATRAS = [
     "Jyeshtha","Mula","Purva Ashadha","Uttara Ashadha","Shravana","Dhanishta","Shatabhisha",
     "Purva Bhadrapada","Uttara Bhadrapada","Revati"
 ]
-NAK_DEG = 360.0 / 27.0  # 13°20' = 13.333...
+NAK_DEG = 360.0 / 27.0
 
-ASPECTS = {
-    0: "Conjunction",
-    60: "Sextile",
-    90: "Square",
-    120: "Trine",
-    180: "Opposition"
-}
-
-FAST_BODIES = {"Moon","Mercury","Venus","Sun","Mars"}
-
-# ------------- Utilities -------------
+ASPECTS = {0:"Conjunction",60:"Sextile",90:"Square",120:"Trine",180:"Opposition"}
 
 def normalize_angle(a):
     a = a % 360.0
@@ -70,12 +51,10 @@ def normalize_angle(a):
     return a
 
 def min_angle_diff(a, b):
-    """Return smallest angle difference between two longitudes (0-180)."""
     d = abs(normalize_angle(a) - normalize_angle(b))
     return d if d <= 180 else 360 - d
 
 def ecl_to_sign_deg(longitude):
-    """Return (sign, deg_in_sign)"""
     lon = normalize_angle(longitude)
     sign_index = int(lon // 30)
     deg_in_sign = lon - sign_index * 30
@@ -103,77 +82,45 @@ def to_local(dt_utc, tzname):
     return dt_utc.astimezone(tz)
 
 def julday_from_dt(dt_utc):
-    """UTC datetime -> Julian Day using swe.julday"""
     return swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute/60 + dt_utc.second/3600)
 
 def sidereal_longitude(body, jd_ut, ayanamsa):
     flag = swe.FLG_SWIEPH | swe.FLG_SPEED
-    lon, lat, dist, speed_long = 0.0, 0.0, 0.0, 0.0
     if body == -1:
-        # Ketu = Rahu + 180
         ra = sidereal_longitude(swe.MEAN_NODE, jd_ut, ayanamsa)
         return normalize_angle(ra + 180.0)
     lon, lat, dist, speed = swe.calc_ut(jd_ut, body, flag)
-    # convert to sidereal by subtracting ayanamsa
-    ay = swe.get_ayanamsa_ut(jd_ut) if ayanamsa is None else swe.get_ayanamsa_ut(jd_ut)
-    sid_lon = normalize_angle(lon - ay)
-    return sid_lon
+    ay = swe.get_ayanamsa_ut(jd_ut)
+    return normalize_angle(lon - ay)
 
 def planet_positions_for_date(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SIDM_LAHIRI):
-    """Return DataFrame of positions and metadata for given local date (00:00 local)."""
-    if not SWISSEPH_AVAILABLE:
-        raise RuntimeError("pyswisseph not available. Please install with: pip install pyswisseph")
-
-    # set sidereal mode
     swe.set_sid_mode(ayanamsa_mode, 0, 0)
-
-    # use 12:00 local noon to reduce retro anomalies; display positions at local noon
     dt_noon_local = datetime(date_local.year, date_local.month, date_local.day, 12, 0, 0)
     dt_noon_utc = to_utc(dt_noon_local, tzname)
     jd = julday_from_dt(dt_noon_utc)
-
     rows = []
     for name, pid in PLANETS:
         lon = sidereal_longitude(pid, jd, ayanamsa_mode)
         sign, deg_in_sign = ecl_to_sign_deg(lon)
         nak, pada = nakshatra_for(lon)
-        rows.append({
-            "Planet": name,
-            "Longitude": round(lon, 4),
-            "Sign": sign,
-            "Deg°": deg_to_dms(deg_in_sign),
-            "Nakshatra": f"{nak}-{pada}"
-        })
+        rows.append({"Planet": name, "Longitude": round(lon, 4), "Sign": sign,
+                     "Deg°": deg_to_dms(deg_in_sign), "Nakshatra": f"{nak}-{pada}"})
     return pd.DataFrame(rows)
 
 def detect_aspects(positions, orb_major=3.0, orb_moon=6.0):
-    """Return list of aspects present at the snapshot positions."""
     aspects = []
     for i in range(len(positions)):
         for j in range(i+1, len(positions)):
-            p1 = positions.iloc[i]
-            p2 = positions.iloc[j]
-            if p1["Planet"] == "Ketu" or p2["Planet"] == "Ketu":
-                # Ketu handled via longitude already; proceed
-                pass
+            p1 = positions.iloc[i]; p2 = positions.iloc[j]
             diff = min_angle_diff(p1["Longitude"], p2["Longitude"])
             for exact, name in ASPECTS.items():
                 orb = orb_moon if ("Moon" in (p1["Planet"], p2["Planet"])) else orb_major
                 if abs(diff - exact) <= orb:
-                    aspects.append({
-                        "Planet A": p1["Planet"],
-                        "Planet B": p2["Planet"],
-                        "Aspect": name,
-                        "Exact°": exact,
-                        "Deviation°": round(diff - exact, 3)
-                    })
+                    aspects.append({"Planet A": p1["Planet"], "Planet B": p2["Planet"],
+                                    "Aspect": name, "Exact°": exact, "Deviation°": round(diff-exact,3)})
     return pd.DataFrame(aspects)
 
 def refine_exact_time(body_fast, body_slow, target_angle, start_utc, tzname, ay_mode, tol_arcmin=1/60, max_iter=30):
-    """Binary-search exact time when angle reaches target_angle.
-       Returns local time.
-    """
-    # initial bracket: search +/- 12 hours around start_utc
     left = start_utc - timedelta(hours=12)
     right = start_utc + timedelta(hours=12)
 
@@ -185,18 +132,12 @@ def refine_exact_time(body_fast, body_slow, target_angle, start_utc, tzname, ay_
         d = d if d <= 180 else 360 - d
         return d
 
-    # Move left forward until angle crosses target or we exhaust
-    a_left = angle_at(left)
-    a_right = angle_at(right)
-
-    # If no crossing, just do simple iterative approach from left to right
+    a_left = angle_at(left); a_right = angle_at(right)
     for _ in range(max_iter):
         mid = left + (right - left)/2
         a_mid = angle_at(mid)
-        # stop when within tolerance
         if abs(a_mid - target_angle) <= tol_arcmin:
             return to_local(mid, tzname)
-        # Choose side that brings closer (not strictly monotonic; heuristic):
         if abs(a_left - target_angle) < abs(a_right - target_angle):
             right = mid; a_right = a_mid
         else:
@@ -204,71 +145,124 @@ def refine_exact_time(body_fast, body_slow, target_angle, start_utc, tzname, ay_
     return to_local(left + (right-left)/2, tzname)
 
 def moon_aspect_timeline(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SIDM_LAHIRI,
-                         orb_major=3.0, orb_moon=6.0, step_minutes=10):
-    """Scan the selected day in steps and find Moon aspects + exact times."""
-    if not SWISSEPH_AVAILABLE:
-        raise RuntimeError("pyswisseph not available. Please install with: pip install pyswisseph")
-
+                         orb_moon=6.0, step_minutes=15):
     swe.set_sid_mode(ayanamsa_mode, 0, 0)
-
-    # day start/end in local then convert to UTC
     start_local = datetime(date_local.year, date_local.month, date_local.day, 0, 0, 0)
     end_local = start_local + timedelta(days=1)
-    t_utc = to_utc(start_local, tzname)
-    end_utc = to_utc(end_local, tzname)
+    t_utc = to_utc(start_local, tzname); end_utc = to_utc(end_local, tzname)
 
+    targets = [('Sun', swe.SUN), ('Mercury', swe.MERCURY), ('Venus', swe.VENUS),
+               ('Mars', swe.MARS), ('Jupiter', swe.JUPITER), ('Saturn', swe.SATURN),
+               ('Rahu', swe.MEAN_NODE), ('Ketu', -1)]
     events = []
 
-    # targets: Moon with Sun, Mercury, Venus, Mars, Jupiter, Saturn, Rahu, Ketu
-    targets = [
-        ('Sun', swe.SUN), ('Mercury', swe.MERCURY), ('Venus', swe.VENUS),
-        ('Mars', swe.MARS), ('Jupiter', swe.JUPITER), ('Saturn', swe.SATURN),
-        ('Rahu', swe.MEAN_NODE), ('Ketu', -1)
-    ]
-
     cur = t_utc
-    prev_diffs = {}
-
+    seen = set()
     while cur < end_utc:
         jd = julday_from_dt(cur)
         lon_moon = sidereal_longitude(swe.MOON, jd, ayanamsa_mode)
-
         for name, pid in targets:
             lon_other = sidereal_longitude(pid, jd, ayanamsa_mode)
             diff = min_angle_diff(lon_moon, lon_other)
             for exact, asp_name in ASPECTS.items():
-                orb = orb_moon  # Moon aspects use moon orb
-                if abs(diff - exact) <= orb:
-                    # attempt refine exact time around 'cur'
-                    local_guess = to_local(cur, tzname)
-                    exact_local = refine_exact_time(swe.MOON, pid, exact, cur, tzname, ayanamsa_mode)
-                    events.append({
-                        "Time": exact_local.strftime("%Y-%m-%d %H:%M"),
-                        "Moon Aspect": f"Moon {asp_name} {name}",
-                        "Exact°": exact
-                    })
+                if abs(diff - exact) <= orb_moon:
+                    key = (asp_name, name)
+                    if key not in seen:
+                        exact_local = refine_exact_time(swe.MOON, pid, exact, cur, tzname, ayanamsa_mode)
+                        events.append({"Time": exact_local.strftime("%Y-%m-%d %H:%M"),
+                                       "Event": f"Moon {asp_name} {name}", "Exact°": exact})
+                        seen.add(key)
         cur += timedelta(minutes=step_minutes)
+    return pd.DataFrame(sorted(events, key=lambda x: x["Time"]))
 
-    # Deduplicate near-duplicates (same aspect within ~45 min)
-    events_sorted = sorted(events, key=lambda x: x["Time"])
-    deduped = []
-    last_key = {}
-    for e in events_sorted:
-        key = e["Moon Aspect"]
-        if key not in last_key:
-            deduped.append(e); last_key[key] = e
-        else:
-            # keep the first occurrence that day
-            continue
+def scan_ingress(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SIDM_LAHIRI, step_minutes=10):
+    """Moon sign and nakshatra ingress times for the day."""
+    swe.set_sid_mode(ayanamsa_mode, 0, 0)
+    start_local = datetime(date_local.year, date_local.month, date_local.day, 0, 0, 0)
+    end_local = start_local + timedelta(days=1)
+    t_utc = to_utc(start_local, tzname); end_utc = to_utc(end_local, tzname)
 
-    return pd.DataFrame(deduped)
+    def moon_lon(t): return sidereal_longitude(swe.MOON, julday_from_dt(t), ayanamsa_mode)
 
-# ------------- UI -------------
+    events = []
+    cur = t_utc
+    # initial states
+    lon0 = moon_lon(cur)
+    sign0, _ = ecl_to_sign_deg(lon0)
+    nak0, pada0 = nakshatra_for(lon0)
 
-st.set_page_config(page_title="Vedic Sidereal Transits & Moon Timeline", layout="wide")
+    while cur < end_utc:
+        cur += timedelta(minutes=step_minutes)
+        lon = moon_lon(cur)
+        sign, _ = ecl_to_sign_deg(lon)
+        nak, pada = nakshatra_for(lon)
 
-st.title("🪐 Vedic Sidereal Transit Explorer (Date Input + Aspects + Moon Timeline)")
+        # Sign change
+        if sign != sign0:
+            # refine around cur-step...cur
+            left = cur - timedelta(minutes=step_minutes)
+            # binary search
+            for _ in range(20):
+                mid = left + (cur-left)/2
+                s_mid, _ = ecl_to_sign_deg(moon_lon(mid))
+                if s_mid == sign0: left = mid
+                else: cur = mid
+            local_time = to_local(cur, tzname).strftime("%Y-%m-%d %H:%M")
+            events.append({"Time": local_time, "Event": f"Moon enters {sign}"})
+            sign0 = sign
 
+        # Nakshatra change
+        if nak != nak0:
+            left = cur - timedelta(minutes=step_minutes)
+            lo = left; hi = cur
+            for _ in range(20):
+                mid = lo + (hi-lo)/2
+                n_mid, _ = nakshatra_for(moon_lon(mid))
+                if n_mid == nak0: lo = mid
+                else: hi = mid
+            local_time = to_local(hi, tzname).strftime("%Y-%m-%d %H:%M")
+            events.append({"Time": local_time, "Event": f"Moon enters {nak}"})
+            nak0 = nak
+
+        # Pada change (optional: uncomment to log)
+        # if pada != pada0:
+        #     local_time = to_local(cur, tzname).strftime("%Y-%m-%d %H:%M")
+        #     events.append({"Time": local_time, "Event": f"Moon pada {nak}-{pada}"})
+        #     pada0 = pada
+
+    return pd.DataFrame(sorted(events, key=lambda x: x["Time"]))
+
+def telegram_format(date_str, tzname, pos_df, asp_df, moon_df, ingress_df):
+    lines = []
+    lines.append(f"✨ **Astro Transit** ({date_str}, {tzname})")
+    lines.append("")
+    lines.append("🪐 *Positions* (Sidereal, noon):")
+    for _, r in pos_df.iterrows():
+        lines.append(f"• {r['Planet']}: {r['Sign']} {r['Deg°']} ({r['Nakshatra']})")
+
+    if not asp_df.empty:
+        lines.append("")
+        lines.append("🔭 *Aspects*:")
+        for _, r in asp_df.iterrows():
+            lines.append(f"• {r['Planet A']} {r['Aspect']} {r['Planet B']} (±{abs(r['Deviation°']):.2f}°)")
+
+    if not ingress_df.empty:
+        lines.append("")
+        lines.append("🌙 *Moon Ingress*:")
+        for _, r in ingress_df.iterrows():
+            lines.append(f"• {r['Time']} – {r['Event']}")
+
+    if not moon_df.empty:
+        lines.append("")
+        lines.append("🕒 *Moon Aspects Timeline*:")
+        for _, r in moon_df.iterrows():
+            lines.append(f"• {r['Time']} – {r['Event']} ({r['Exact°']}°)")
+
+    return "\n".join(lines)
+
+# -------- UI --------
+st.set_page_config(page_title="Vedic Sidereal Transits – Date, Aspects, Moon Timeline", layout="wide")
+st.title("🪐 Vedic Sidereal Transit Explorer")
 if not SWISSEPH_AVAILABLE:
     st.error(
         "pyswisseph (Swiss Ephemeris) is not installed in this environment.\n\n"
@@ -291,45 +285,51 @@ ayanamsa_map = {
     "True Citra": swe.SIDM_TRUE_CITRA
 }
 ay_mode = ayanamsa_map[ay_choice]
+swe.set_sid_mode(ay_mode, 0, 0)
 
-st.markdown("---")
 col1, col2 = st.columns(2)
 with col1:
     orb_major = st.slider("Orb for aspects (most planets) [°]", 1.0, 6.0, 3.0, 0.5)
 with col2:
     orb_moon = st.slider("Orb for Moon aspects [°]", 2.0, 10.0, 6.0, 0.5)
 
-# Positions
+st.markdown("---")
 st.subheader("Planetary Positions (Sidereal)")
 pos_df = planet_positions_for_date(date_in, tzname=tz_in, ayanamsa_mode=ay_mode)
 st.dataframe(pos_df, use_container_width=True)
 
-# Aspects (snapshot around local noon)
-st.subheader("Planetary Aspects (snapshot)")
+st.subheader("Planetary Aspects (snapshot around local noon)")
 asp_df = detect_aspects(pos_df, orb_major=orb_major, orb_moon=orb_moon)
 if asp_df.empty:
     st.info("No major aspects within selected orbs at the snapshot time.")
 else:
     st.dataframe(asp_df.sort_values(by=["Aspect","Planet A"]), use_container_width=True)
 
-# Moon Timeline
-st.subheader("🌓 Moon Aspect Timeline (Exact times for the selected day)")
-with st.spinner("Calculating Moon aspects across the day..."):
-    moon_df = moon_aspect_timeline(date_in, tzname=tz_in, ayanamsa_mode=ay_mode,
-                                   orb_major=orb_major, orb_moon=orb_moon, step_minutes=15)
-if moon_df.empty:
-    st.info("No major Moon aspects found for the day within the chosen orb.")
-else:
-    st.dataframe(moon_df, use_container_width=True)
+st.subheader("🌙 Moon Aspects Timeline (exact times)")
+with st.spinner("Computing Moon aspects across the day..."):
+    moon_df = moon_aspect_timeline(date_in, tzname=tz_in, ayanamsa_mode=ay_mode, orb_moon=orb_moon, step_minutes=15)
+st.dataframe(moon_df, use_container_width=True)
 
-# Download buttons
+st.subheader("🌗 Moon Ingress (Sign & Nakshatra)")
+with st.spinner("Scanning ingress events..."):
+    ingress_df = scan_ingress(date_in, tzname=tz_in, ayanamsa_mode=ay_mode, step_minutes=10)
+st.dataframe(ingress_df, use_container_width=True)
+
+# Downloads
 csv1 = pos_df.to_csv(index=False).encode()
 csv2 = asp_df.to_csv(index=False).encode()
-csv3 = moon_df.to_csv(index=False).encode() if not moon_df.empty else b""
+csv3 = moon_df.to_csv(index=False).encode()
+csv4 = ingress_df.to_csv(index=False).encode()
+colD, colE, colF, colG = st.columns(4)
+with colD: st.download_button("Download Positions CSV", csv1, file_name=f"positions_{date_in}.csv")
+with colE: st.download_button("Download Aspects CSV", csv2, file_name=f"aspects_{date_in}.csv")
+with colF: st.download_button("Download Moon Timeline CSV", csv3, file_name=f"moon_timeline_{date_in}.csv")
+with colG: st.download_button("Download Moon Ingress CSV", csv4, file_name=f"moon_ingress_{date_in}.csv")
 
-st.download_button("Download Positions CSV", csv1, file_name=f"positions_{date_in}.csv")
-st.download_button("Download Aspects CSV", csv2, file_name=f"aspects_{date_in}.csv")
-if csv3:
-    st.download_button("Download Moon Timeline CSV", csv3, file_name=f"moon_timeline_{date_in}.csv")
+# Telegram formatter
+st.markdown("---")
+st.subheader("📨 Telegram Alert Preview")
+msg = telegram_format(str(date_in), tz_in, pos_df, asp_df, moon_df, ingress_df)
+st.text_area("Formatted message (copy/paste to your bot):", value=msg, height=300)
 
-st.caption("Tip: Use the CSVs to feed your Telegram alert formatter or TradingView webhook logic.")
+st.caption("Next: we can add KP sub-lord timeline and automatic Telegram posting if you share your bot token/chat ID (or use your existing NextLevelBot webhook).")
