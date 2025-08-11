@@ -1281,6 +1281,63 @@ def create_enhanced_data_table(df: pd.DataFrame, table_type: str = "sector"):
         st.write("Raw data:")
         st.write(df)
 
+def create_alert_system(sector_data: List[SectorAnalysis]):
+    """Create intelligent alert system"""
+    st.markdown("### 🚨 Market Intelligence Alerts")
+    
+    alerts = []
+    
+    for sector in sector_data:
+        abs_score = abs(sector.net_score)
+        
+        if abs_score >= 3.0:
+            alert_type = "CRITICAL"
+            alert_class = "alert-danger"
+            icon = "🚨"
+        elif abs_score >= 2.0:
+            alert_type = "HIGH"
+            alert_class = "alert-warning" 
+            icon = "⚠️"
+        elif abs_score >= 1.5:
+            alert_type = "MODERATE"
+            alert_class = "alert-success"
+            icon = "📢"
+        else:
+            continue
+            
+        direction = "BULLISH" if sector.net_score > 0 else "BEARISH"
+        
+        alerts.append({
+            'type': alert_type,
+            'direction': direction,
+            'sector': sector.sector,
+            'score': sector.net_score,
+            'confidence': sector.confidence,
+            'class': alert_class,
+            'icon': icon
+        })
+    
+    if alerts:
+        # Sort by importance
+        alerts.sort(key=lambda x: abs(x['score']), reverse=True)
+        
+        for alert in alerts[:5]:  # Show top 5 alerts
+            st.markdown(f"""
+            <div class="alert-box {alert['class']}">
+                {alert['icon']} <strong>{alert['type']} {alert['direction']} SIGNAL</strong><br>
+                <strong>Sector:</strong> {alert['sector']}<br>
+                <strong>Score:</strong> {alert['score']:.2f} | <strong>Confidence:</strong> {alert['confidence']:.1%}<br>
+                <small>Consider position adjustments in {alert['sector']} sector</small>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="alert-box alert-success">
+            ✅ <strong>All Clear</strong><br>
+            No extreme astrological signals detected. Market conditions appear stable.
+        </div>
+        """, unsafe_allow_html=True)
+
 def create_commodity_alerts(sector_data: List[SectorAnalysis]):
     """Create specialized alerts for commodity sectors"""
     st.markdown("### 🥇 Commodity Market Alerts")
@@ -1391,6 +1448,64 @@ def create_commodity_alerts(sector_data: List[SectorAnalysis]):
         <div class="alert-box alert-success">
             ✅ <strong>All Clear</strong><br>
             No extreme astrological signals detected. Market conditions appear stable.
+        </div>
+        """, unsafe_allow_html=True)
+
+def create_commodity_alerts(sector_data: List[SectorAnalysis]):
+    """Create specialized alerts for commodity sectors"""
+    st.markdown("### 🥇 Commodity Market Alerts")
+    
+    commodity_sectors = ['GOLD', 'SILVER', 'CRUDE', 'CRYPTO', 'ENERGY', 'DOWJONES']
+    commodity_alerts = [s for s in sector_data if s.sector in commodity_sectors]
+    
+    if not commodity_alerts:
+        st.info("No commodity data available for alerts.")
+        return
+    
+    # Sort by absolute score
+    commodity_alerts.sort(key=lambda x: abs(x.net_score), reverse=True)
+    
+    for commodity in commodity_alerts[:6]:  # Show top 6 commodities
+        abs_score = abs(commodity.net_score)
+        
+        # Determine alert level
+        if abs_score >= 2.5:
+            alert_level = "🚨 CRITICAL"
+            alert_class = "alert-danger"
+        elif abs_score >= 1.5:
+            alert_level = "⚠️ HIGH"
+            alert_class = "alert-warning"
+        elif abs_score >= 1.0:
+            alert_level = "📢 MODERATE"
+            alert_class = "alert-success"
+        else:
+            continue
+        
+        direction = "BULLISH" if commodity.net_score > 0 else "BEARISH"
+        
+        # Commodity-specific icons
+        commodity_icons = {
+            'GOLD': '🥇', 'SILVER': '🥈', 'CRUDE': '🛢️', 
+            'CRYPTO': '₿', 'ENERGY': '⚡', 'DOWJONES': '📊'
+        }
+        icon = commodity_icons.get(commodity.sector, '📈')
+        
+        # Special messages for commodities
+        if commodity.sector == 'GOLD':
+            message = "Safe haven demand" if direction == "BULLISH" else "Risk-on sentiment"
+        elif commodity.sector == 'CRUDE':
+            message = "Supply concerns" if direction == "BULLISH" else "Demand weakness"
+        elif commodity.sector == 'CRYPTO':
+            message = "Digital asset momentum" if direction == "BULLISH" else "Regulatory concerns"
+        else:
+            message = f"{direction.lower()} momentum"
+        
+        st.markdown(f"""
+        <div class="alert-box {alert_class}">
+            {icon} <strong>{alert_level} {direction} SIGNAL - {commodity.sector}</strong><br>
+            <strong>Score:</strong> {commodity.net_score:.2f} | <strong>Confidence:</strong> {commodity.confidence:.1%}<br>
+            <strong>Analysis:</strong> {message}<br>
+            <small>Risk Level: {commodity.risk_level} | Signal Strength: {commodity.signal_strength}</small>
         </div>
         """, unsafe_allow_html=True)
 
