@@ -719,29 +719,186 @@ def generate_timing_analysis(sector_name: str, base_score: float, user_config: D
         peak_bearish_time=peak_bearish_time,
         transition_times=transition_times
     )
-    """Style sector ranking table with colors"""
-    if df.empty: 
-        return df
+
+def generate_intraday_transits(symbol: str, start_datetime: datetime, end_datetime: datetime, scoring_engine) -> List[Dict]:
+    """Generate intraday planetary transits for a specific symbol"""
+    transits = []
+    current_time = start_datetime
     
-    def color_row(row):
-        sig = row.get("Trend", "")
-        base = ''
-        if sig == "Bullish" or sig == "Strong Bullish":
-            base = '#cfe8ff'
-        elif sig == "Bearish" or sig == "Strong Bearish":
-            base = '#ffd6d6'
-        elif sig == "Neutral":
-            base = '#fefce8'
+    # Sample planetary data for demo
+    sample_planets = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn']
+    sample_aspects = ['Conjunction', 'Sextile', 'Square', 'Trine', 'Opposition']
+    
+    while current_time <= end_datetime:
+        # Generate random transit events (in real implementation, use actual ephemeris)
+        if (hash(str(current_time) + symbol) % 10) < 3:  # 30% chance of event
+            
+            planet_a = sample_planets[hash(str(current_time) + "a") % len(sample_planets)]
+            planet_b = sample_planets[hash(str(current_time) + "b") % len(sample_planets)]
+            
+            if planet_a != planet_b:
+                aspect = sample_aspects[hash(str(current_time) + "aspect") % len(sample_aspects)]
+                
+                # Calculate score based on aspect and planets
+                base_score = 0
+                if aspect in ['Trine', 'Sextile']:
+                    base_score += 1.5
+                elif aspect in ['Square', 'Opposition']:
+                    base_score -= 1.2
+                else:  # Conjunction
+                    base_score += 0.5
+                
+                # Add planet-specific scoring
+                benefic_planets = ['Venus', 'Jupiter', 'Mercury']
+                if planet_a in benefic_planets:
+                    base_score += 0.5
+                if planet_b in benefic_planets:
+                    base_score += 0.5
+                
+                # Add random variation
+                variation = (hash(str(current_time) + symbol + "var") % 200 - 100) / 100
+                final_score = base_score + variation
+                
+                # Determine signal
+                if final_score > 0.5:
+                    signal = "BULLISH"
+                elif final_score < -0.5:
+                    signal = "BEARISH"
+                else:
+                    signal = "NEUTRAL"
+                
+                confidence = min(0.95, max(0.3, 0.7 + abs(final_score) * 0.1))
+                
+                transits.append({
+                    'Time': current_time.strftime('%H:%M'),
+                    'Planet A': planet_a,
+                    'Planet B': planet_b,
+                    'Aspect': aspect,
+                    'Score': round(final_score, 2),
+                    'Signal': signal,
+                    'Strength': abs(final_score),
+                    'Confidence': confidence
+                })
         
-        if current_sector and row.get("Sector", "") == current_sector:
-            base = '#b3e6cc'
+        current_time += timedelta(minutes=15)  # 15-minute intervals
+    
+    return transits
+
+def create_swing_analysis(transits: List[Dict], symbol: str) -> List[Dict]:
+    """Analyze transits for swing trading signals"""
+    swing_points = []
+    
+    for i, transit in enumerate(transits):
+        score = transit['Score']
+        confidence = transit['Confidence']
         
-        return [f'background-color: {base}' if base else '' for _ in row]
+        # Strong bullish signal for BUY
+        if score >= 1.5 and confidence >= 0.7:
+            swing_points.append({
+                'Time': transit['Time'],
+                'Type': 'BUY SIGNAL',
+                'Action': f'Consider long position in {symbol}',
+                'Score': score,
+                'Confidence': confidence
+            })
+        
+        # Strong bearish signal for SELL
+        elif score <= -1.5 and confidence >= 0.7:
+            swing_points.append({
+                'Time': transit['Time'], 
+                'Type': 'SELL SIGNAL',
+                'Action': f'Consider short position in {symbol}',
+                'Score': score,
+                'Confidence': confidence
+            })
+        
+        # Look for reversals
+        if i > 0:
+            prev_score = transits[i-1]['Score']
+            if prev_score > 1.0 and score < -0.5:
+                swing_points.append({
+                    'Time': transit['Time'],
+                    'Type': 'REVERSAL - BEARISH',
+                    'Action': f'Exit long positions in {symbol}',
+                    'Score': score,
+                    'Confidence': confidence
+                })
+            elif prev_score < -1.0 and score > 0.5:
+                swing_points.append({
+                    'Time': transit['Time'],
+                    'Type': 'REVERSAL - BULLISH', 
+                    'Action': f'Exit short positions in {symbol}',
+                    'Score': score,
+                    'Confidence': confidence
+                })
+    
+    return swing_points
+
+def create_intraday_chart(transits: List[Dict], symbol: str):
+    """Create interactive intraday transit chart"""
+    if not PLOTLY_AVAILABLE or not transits:
+        return None
     
     try:
-        return df.style.apply(color_row, axis=1)
-    except Exception:
-        return df
+        df = pd.DataFrame(transits)
+        df['Datetime'] = pd.to_datetime(df['Time'], format='%H:%M')
+        
+        # Create line chart with color coding
+        fig = go.Figure()
+        
+        # Add score line
+        fig.add_trace(go.Scatter(
+            x=df['Time'],
+            y=df['Score'],
+            mode='lines+markers',
+            name='Planetary Score',
+            line=dict(color='blue', width=2),
+            marker=dict(size=6)
+        ))
+        
+        # Color markers by signal
+        bullish_df = df[df['Signal'] == 'BULLISH']
+        bearish_df = df[df['Signal'] == 'BEARISH']
+        neutral_df = df[df['Signal'] == 'NEUTRAL']
+        
+        if not bullish_df.empty:
+            fig.add_trace(go.Scatter(
+                x=bullish_df['Time'],
+                y=bullish_df['Score'],
+                mode='markers',
+                name='Bullish',
+                marker=dict(color='green', size=10, symbol='triangle-up')
+            ))
+        
+        if not bearish_df.empty:
+            fig.add_trace(go.Scatter(
+                x=bearish_df['Time'],
+                y=bearish_df['Score'],
+                mode='markers',
+                name='Bearish',
+                marker=dict(color='red', size=10, symbol='triangle-down')
+            ))
+        
+        # Add horizontal lines for key levels
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+        fig.add_hline(y=1.5, line_dash="dot", line_color="green", opacity=0.5, annotation_text="Strong Bullish")
+        fig.add_hline(y=-1.5, line_dash="dot", line_color="red", opacity=0.5, annotation_text="Strong Bearish")
+        
+        fig.update_layout(
+            title=f"Planetary Transit Analysis - {symbol}",
+            xaxis_title="Time",
+            yaxis_title="Planetary Score",
+            height=450,
+            showlegend=True,
+            plot_bgcolor='white',
+            paper_bgcolor='white'
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"Chart creation error: {str(e)}")
+        return None
 
 class EnhancedScoringEngine:
     def __init__(self, config: AppConfig):
@@ -1214,180 +1371,6 @@ def create_commodity_alerts(sector_data: List[SectorAnalysis]):
             alert_class = "alert-danger"
         elif abs_score >= 1.5:
             alert_level = "⚠️ HIGH" 
-            alert_class = "alert-warning"
-        elif abs_score >= 1.0:
-            alert_level = "📢 MODERATE"
-            alert_class = "alert-success"
-        else:
-            continue
-        
-        direction = "BULLISH" if commodity.net_score > 0 else "BEARISH"
-        
-        # Commodity-specific icons
-        commodity_icons = {
-            'GOLD': '🥇', 'SILVER': '🥈', 'CRUDE': '🛢️', 
-            'CRYPTO': '₿', 'ENERGY': '⚡', 'DOWJONES': '📊'
-        }
-        icon = commodity_icons.get(commodity.sector, '📈')
-        
-        # Special messages for commodities
-        if commodity.sector == 'GOLD':
-            message = "Safe haven demand" if direction == "BULLISH" else "Risk-on sentiment"
-        elif commodity.sector == 'CRUDE':
-            message = "Supply concerns" if direction == "BULLISH" else "Demand weakness"
-        elif commodity.sector == 'CRYPTO':
-            message = "Digital asset momentum" if direction == "BULLISH" else "Regulatory concerns"
-        else:
-            message = f"{direction.lower()} momentum"
-        
-        st.markdown(f"""
-        <div class="alert-box {alert_class}">
-            {icon} <strong>{alert_level} {direction} SIGNAL - {commodity.sector}</strong><br>
-            <strong>Score:</strong> {commodity.net_score:.2f} | <strong>Confidence:</strong> {commodity.confidence:.1%}<br>
-            <strong>Analysis:</strong> {message}<br>
-            <small>Risk Level: {commodity.risk_level} | Signal Strength: {commodity.signal_strength}</small>
-        </div>
-        """, unsafe_allow_html=True)
-
-    """Remove the duplicate function definition here"""
-    pass
-
-# This will be the only create_alert_system definition
-    """Create specialized alerts for commodity sectors"""
-    st.markdown("### 🥇 Commodity Market Alerts")
-    
-    commodity_sectors = ['GOLD', 'SILVER', 'CRUDE', 'CRYPTO', 'ENERGY', 'DOWJONES']
-    commodity_alerts = [s for s in sector_data if s.sector in commodity_sectors]
-    
-    if not commodity_alerts:
-        st.info("No commodity data available for alerts.")
-        return
-    
-    # Sort by absolute score
-    commodity_alerts.sort(key=lambda x: abs(x.net_score), reverse=True)
-    
-    for commodity in commodity_alerts[:6]:  # Show top 6 commodities
-        abs_score = abs(commodity.net_score)
-        
-        # Determine alert level
-        if abs_score >= 2.5:
-            alert_level = "🚨 CRITICAL"
-            alert_class = "alert-danger"
-        elif abs_score >= 1.5:
-            alert_level = "⚠️ HIGH"
-            alert_class = "alert-warning"
-        elif abs_score >= 1.0:
-            alert_level = "📢 MODERATE"
-            alert_class = "alert-success"
-        else:
-            continue
-        
-        direction = "BULLISH" if commodity.net_score > 0 else "BEARISH"
-        
-        # Commodity-specific icons
-        commodity_icons = {
-            'GOLD': '🥇', 'SILVER': '🥈', 'CRUDE': '🛢️', 
-            'CRYPTO': '₿', 'ENERGY': '⚡', 'DOWJONES': '📊'
-        }
-        icon = commodity_icons.get(commodity.sector, '📈')
-        
-        # Special messages for commodities
-        if commodity.sector == 'GOLD':
-            message = "Safe haven demand" if direction == "BULLISH" else "Risk-on sentiment"
-        elif commodity.sector == 'CRUDE':
-            message = "Supply concerns" if direction == "BULLISH" else "Demand weakness"
-        elif commodity.sector == 'CRYPTO':
-            message = "Digital asset momentum" if direction == "BULLISH" else "Regulatory concerns"
-        else:
-            message = f"{direction.lower()} momentum"
-        
-        st.markdown(f"""
-        <div class="alert-box {alert_class}">
-            {icon} <strong>{alert_level} {direction} SIGNAL - {commodity.sector}</strong><br>
-            <strong>Score:</strong> {commodity.net_score:.2f} | <strong>Confidence:</strong> {commodity.confidence:.1%}<br>
-            <strong>Analysis:</strong> {message}<br>
-            <small>Risk Level: {commodity.risk_level} | Signal Strength: {commodity.signal_strength}</small>
-        </div>
-        """, unsafe_allow_html=True)
-    """Create intelligent alert system"""
-    st.markdown("### 🚨 Market Intelligence Alerts")
-    
-    alerts = []
-    
-    for sector in sector_data:
-        abs_score = abs(sector.net_score)
-        
-        if abs_score >= 3.0:
-            alert_type = "CRITICAL"
-            alert_class = "alert-danger"
-            icon = "🚨"
-        elif abs_score >= 2.0:
-            alert_type = "HIGH"
-            alert_class = "alert-warning" 
-            icon = "⚠️"
-        elif abs_score >= 1.5:
-            alert_type = "MODERATE"
-            alert_class = "alert-success"
-            icon = "📢"
-        else:
-            continue
-            
-        direction = "BULLISH" if sector.net_score > 0 else "BEARISH"
-        
-        alerts.append({
-            'type': alert_type,
-            'direction': direction,
-            'sector': sector.sector,
-            'score': sector.net_score,
-            'confidence': sector.confidence,
-            'class': alert_class,
-            'icon': icon
-        })
-    
-    if alerts:
-        # Sort by importance
-        alerts.sort(key=lambda x: abs(x['score']), reverse=True)
-        
-        for alert in alerts[:5]:  # Show top 5 alerts
-            st.markdown(f"""
-            <div class="alert-box {alert['class']}">
-                {alert['icon']} <strong>{alert['type']} {alert['direction']} SIGNAL</strong><br>
-                <strong>Sector:</strong> {alert['sector']}<br>
-                <strong>Score:</strong> {alert['score']:.2f} | <strong>Confidence:</strong> {alert['confidence']:.1%}<br>
-                <small>Consider position adjustments in {alert['sector']} sector</small>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div class="alert-box alert-success">
-            ✅ <strong>All Clear</strong><br>
-            No extreme astrological signals detected. Market conditions appear stable.
-        </div>
-        """, unsafe_allow_html=True)
-
-def create_commodity_alerts(sector_data: List[SectorAnalysis]):
-    """Create specialized alerts for commodity sectors"""
-    st.markdown("### 🥇 Commodity Market Alerts")
-    
-    commodity_sectors = ['GOLD', 'SILVER', 'CRUDE', 'CRYPTO', 'ENERGY', 'DOWJONES']
-    commodity_alerts = [s for s in sector_data if s.sector in commodity_sectors]
-    
-    if not commodity_alerts:
-        st.info("No commodity data available for alerts.")
-        return
-    
-    # Sort by absolute score
-    commodity_alerts.sort(key=lambda x: abs(x.net_score), reverse=True)
-    
-    for commodity in commodity_alerts[:6]:  # Show top 6 commodities
-        abs_score = abs(commodity.net_score)
-        
-        # Determine alert level
-        if abs_score >= 2.5:
-            alert_level = "🚨 CRITICAL"
-            alert_class = "alert-danger"
-        elif abs_score >= 1.5:
-            alert_level = "⚠️ HIGH"
             alert_class = "alert-warning"
         elif abs_score >= 1.0:
             alert_level = "📢 MODERATE"
@@ -2006,658 +1989,4 @@ def main():
                 
                 with filter_col1:
                     min_score = st.slider("Minimum |Score|", 0.0, 5.0, 0.0, 0.1)
-                    filtered_df = aspect_enhanced[abs(aspect_enhanced['Score']) >= min_score]
-                
-                with filter_col2:
-                    signal_filter = st.multiselect(
-                        "Signal Types", 
-                        aspect_enhanced['Signal'].unique(),
-                        default=aspect_enhanced['Signal'].unique()
-                    )
-                    filtered_df = filtered_df[filtered_df['Signal'].isin(signal_filter)]
-                
-                if not filtered_df.empty and len(filtered_df) != len(aspect_enhanced):
-                    st.markdown("### 🔍 Filtered Results")
-                    create_enhanced_data_table(filtered_df[display_cols], "aspects")
-                
-            except Exception as e:
-                st.error(f"Error processing aspect events: {str(e)}")
-                st.dataframe(aspect_df, use_container_width=True)
-        else:
-            st.info("No aspect events found for the selected date.")
-            st.markdown("**Note:** This may be due to:")
-            st.markdown("- No significant planetary aspects occurring")
-            st.markdown("- Date outside ephemeris range") 
-            st.markdown("- Configuration issues")
-    
-    with tab4:
-        st.markdown("## 📋 KP System Analysis")
-        
-        if not kp_df.empty:
-            st.markdown("### 🌙 Moon KP Transitions")
-            
-            # Enhance KP data with scoring
-            kp_enhanced = kp_df.copy()
-            
-            try:
-                # Calculate KP scores
-                kp_scores = []
-                for _, row in kp_df.iterrows():
-                    score = scoring_engine.score_kp_event(row, "NIFTY")
-                    signal = scoring_engine.classify_signal(score)
-                    kp_scores.append({'Score': score, 'Signal': signal})
-                
-                kp_enhanced['Score'] = [s['Score'] for s in kp_scores]
-                kp_enhanced['Signal'] = [s['Signal'] for s in kp_scores]
-                kp_enhanced['Strength'] = kp_enhanced['Score'].apply(get_signal_strength)
-                kp_enhanced['Trend Emoji'] = kp_enhanced['Score'].apply(get_trend_emoji)
-                
-                create_enhanced_data_table(kp_enhanced, "kp")
-                
-                # KP Summary statistics
-                st.markdown("### 📊 KP Analysis Summary")
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.metric("Total KP Events", len(kp_enhanced))
-                with col2:
-                    unique_stars = kp_enhanced['Star Lord'].nunique() if 'Star Lord' in kp_enhanced.columns else 0
-                    st.metric("Unique Star Lords", unique_stars)
-                with col3:
-                    unique_subs = kp_enhanced['Sub Lord'].nunique() if 'Sub Lord' in kp_enhanced.columns else 0
-                    st.metric("Unique Sub Lords", unique_subs)
-                with col4:
-                    avg_kp_score = kp_enhanced['Score'].mean()
-                    st.metric("Average KP Score", f"{avg_kp_score:.2f}")
-                
-                # Star Lord distribution
-                if 'Star Lord' in kp_enhanced.columns:
-                    st.markdown("### ⭐ Star Lord Distribution")
-                    star_counts = kp_enhanced['Star Lord'].value_counts()
-                    
-                    # Create a simple bar chart
-                    chart_data = pd.DataFrame({
-                        'Star Lord': star_counts.index,
-                        'Count': star_counts.values
-                    })
-                    st.bar_chart(chart_data.set_index('Star Lord'))
-                
-            except Exception as e:
-                st.error(f"Error processing KP events: {str(e)}")
-                st.dataframe(kp_df, use_container_width=True)
-                
-        else:
-            st.info("No KP events found for the selected date.")
-            st.markdown("**KP Analysis requires:**")
-            st.markdown("- Moon position calculations")
-            st.markdown("- Nakshatra and sub-lord computations")
-            st.markdown("- Minimum 1-minute time resolution")
-    
-    with tab5:
-        st.markdown("## 📅 Weekly Outlook — Sector Analysis by Day")
-        
-        # Week configuration
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            week_start_option = st.selectbox("Week starts on", ["Monday", "Sunday"], index=0)
-        with col2:
-            w_start_t = st.time_input("Start Time", value=dtime(9, 15), key="weekly_start")
-        with col3:
-            w_end_t = st.time_input("End Time", value=dtime(15, 30), key="weekly_end")
-        
-        # Calculate week dates
-        anchor = pd.Timestamp(user_config['date'])
-        if week_start_option == "Monday":
-            start_day = anchor - pd.Timedelta(days=anchor.weekday())
-        else:
-            start_day = anchor - pd.Timedelta(days=(anchor.weekday() + 1) % 7)
-        
-        days = [start_day + pd.Timedelta(days=i) for i in range(7)]
-        days_py = [d.date() for d in days]
-        
-        # Weekly sector analysis
-        with st.spinner("Computing weekly sector rankings..."):
-            weekly_rows = []
-            progress_bar = st.progress(0)
-            
-            for idx, d in enumerate(days_py):
-                progress_bar.progress((idx + 1) / len(days_py))
-                
-                rdf = rank_for_single_date(
-                    d, config.SECTORS, user_config['timezone'], 
-                    w_start_t, w_end_t, user_config['kp_premium'], 
-                    user_config['signal_threshold'], scoring_engine
-                )
-                
-                if rdf.empty:
-                    weekly_rows.append({
-                        "Date": str(d), 
-                        "Day": pd.Timestamp(d).strftime('%A'),
-                        "Top Bullish": "-", 
-                        "NetScore": 0, 
-                        "Top Bearish": "-", 
-                        "BearScore": 0
-                    })
-                else:
-                    top_bull = rdf.iloc[0]
-                    bot_bear = rdf.sort_values("NetScore", ascending=True).iloc[0]
-                    weekly_rows.append({
-                        "Date": str(d),
-                        "Day": pd.Timestamp(d).strftime('%A'),
-                        "Top Bullish": top_bull["Sector"], 
-                        "NetScore": top_bull["NetScore"],
-                        "Top Bearish": bot_bear["Sector"], 
-                        "BearScore": bot_bear["NetScore"]
-                    })
-            
-            progress_bar.empty()
-        
-        week_df = pd.DataFrame(weekly_rows)
-        st.dataframe(week_df, use_container_width=True)
-        
-        # Weekly transit cards
-        with st.expander("🔭 Upcoming 7 Days — Major Movements", expanded=False):
-            cards = create_transit_cards(
-                days_py[0], 7, config.SECTORS, user_config['timezone'], 
-                w_start_t, w_end_t, scoring_engine, 
-                user_config['kp_premium'], user_config['signal_threshold']
-            )
-            render_cards(cards, "Weekly Planetary Influences")
-        
-        # Manual day/sector selection
-        st.markdown("### 🎯 Detailed Day Analysis")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            day_pick = st.selectbox("Select Day", [str(d) for d in days_py], key="weekly_day_pick")
-        with col2:
-            sectors_flat = {}
-            for category, sector_dict in config.SECTORS.items():
-                sectors_flat.update(sector_dict)
-            sector_pick = st.selectbox("Select Sector", list(sectors_flat.keys()), key="weekly_sector_pick")
-        
-        # Show detailed analysis for selected day/sector
-        selected_date = pd.to_datetime(day_pick).date()
-        selected_rdf = rank_for_single_date(
-            selected_date, config.SECTORS, user_config['timezone'],
-            w_start_t, w_end_t, user_config['kp_premium'],
-            user_config['signal_threshold'], scoring_engine
-        )
-        
-        if not selected_rdf.empty:
-            st.markdown(f"**{sector_pick} Analysis for {day_pick}:**")
-            sector_row = selected_rdf[selected_rdf['Sector'] == sector_pick]
-            
-            if not sector_row.empty:
-                row = sector_row.iloc[0]
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Net Score", f"{row['NetScore']:.2f}")
-                with col2:
-                    st.metric("Trend", row['Trend'])
-                with col3:
-                    st.metric("Confidence", f"{row['Confidence']:.1%}")
-            else:
-                st.info(f"No data available for {sector_pick} on {day_pick}")
-    
-    with tab6:
-        st.markdown("## 🗓️ Monthly Outlook — Calendar Analysis")
-        
-        # Month configuration
-        col1, col2 = st.columns(2)
-        with col1:
-            m_start_t = st.time_input("Start Time", value=dtime(9, 15), key="monthly_start")
-        with col2:
-            m_end_t = st.time_input("End Time", value=dtime(15, 30), key="monthly_end")
-        
-        month_anchor = st.date_input("Month to Analyze", value=user_config['date'], key="month_anchor")
-        
-        # Build month days
-        first_day = pd.Timestamp(month_anchor).replace(day=1)
-        next_month = (first_day + pd.offsets.MonthEnd(0)) + pd.Timedelta(days=1)
-        last_day = (pd.Timestamp(next_month) - pd.Timedelta(days=1)).date()
-        
-        day = first_day.date()
-        month_days = []
-        while day <= last_day:
-            month_days.append(day)
-            day = (pd.Timestamp(day) + pd.Timedelta(days=1)).date()
-        
-        # Monthly analysis
-        with st.spinner("Computing monthly sector analysis..."):
-            monthly_rows = []
-            progress_bar = st.progress(0)
-            
-            for idx, d in enumerate(month_days):
-                progress_bar.progress((idx + 1) / len(month_days))
-                
-                rdf = rank_for_single_date(
-                    d, config.SECTORS, user_config['timezone'],
-                    m_start_t, m_end_t, user_config['kp_premium'],
-                    user_config['signal_threshold'], scoring_engine
-                )
-                
-                if rdf.empty:
-                    monthly_rows.append({
-                        "Date": str(d),
-                        "Top Bullish": "-",
-                        "NetScore": 0,
-                        "Top Bearish": "-", 
-                        "BearScore": 0
-                    })
-                else:
-                    top_bull = rdf.iloc[0]
-                    bot_bear = rdf.sort_values("NetScore", ascending=True).iloc[0]
-                    monthly_rows.append({
-                        "Date": str(d),
-                        "Top Bullish": top_bull["Sector"],
-                        "NetScore": top_bull["NetScore"],
-                        "Top Bearish": bot_bear["Sector"],
-                        "BearScore": bot_bear["NetScore"]
-                    })
-            
-            progress_bar.empty()
-        
-        month_df = pd.DataFrame(monthly_rows)
-        
-        # Show monthly data table
-        st.dataframe(month_df, use_container_width=True)
-        
-        # Calendar heatmap
-        st.markdown("### 📅 Monthly Calendar Heatmap")
-        disp_df, styled = build_calendar_table(month_days, month_df[['Date', 'NetScore']])
-        
-        if styled is not None:
-            st.dataframe(styled, use_container_width=True)
-        else:
-            st.dataframe(disp_df, use_container_width=True)
-            st.info("Calendar styling not available - showing basic calendar")
-        
-        # Monthly transit overview
-        with st.expander("🔭 Monthly Planetary Overview", expanded=False):
-            monthly_cards = create_transit_cards(
-                month_days[0], min(len(month_days), 10), config.SECTORS, 
-                user_config['timezone'], m_start_t, m_end_t, scoring_engine,
-                user_config['kp_premium'], user_config['signal_threshold']
-            )
-            render_cards(monthly_cards[:10], "Key Monthly Influences (First 10 Days)")
-        
-        # Monthly summary statistics
-        st.markdown("### 📊 Monthly Summary")
-        if not month_df.empty and 'NetScore' in month_df.columns:
-            scores = month_df['NetScore'].astype(float)
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Average Score", f"{scores.mean():.2f}")
-            with col2:
-                st.metric("Best Day Score", f"{scores.max():.2f}")
-            with col3:
-                st.metric("Worst Day Score", f"{scores.min():.2f}")
-            with col4:
-                st.metric("Volatility", f"{scores.std():.2f}")
-            
-            # Best and worst days
-            if not month_df.empty:
-                best_day = month_df.loc[scores.idxmax()]
-                worst_day = month_df.loc[scores.idxmin()]
-                
-                st.markdown("**📈 Best Day:** " + 
-                          f"{best_day['Date']} - {best_day['Top Bullish']} (Score: {best_day['NetScore']:.2f})")
-                st.markdown("**📉 Worst Day:** " + 
-                          f"{worst_day['Date']} - {worst_day['Top Bearish']} (Score: {worst_day['BearScore']:.2f})")
-    
-    with tab7:
-        st.markdown("## ⚡ Workshop Intraday - Planetary Transit Analysis")
-        
-        # Symbol and Time Period Configuration
-        st.markdown("### 🎯 Configure Analysis Parameters")
-        
-        intraday_col1, intraday_col2, intraday_col3 = st.columns(3)
-        
-        with intraday_col1:
-            # Symbol selection with expanded options
-            all_symbols = []
-            for category, sector_dict in config.SECTORS.items():
-                for sector, stocks in sector_dict.items():
-                    all_symbols.extend(stocks)
-            
-            # Add popular symbols not in sectors
-            popular_symbols = ['NIFTY', 'BANKNIFTY', 'GOLD', 'SILVER', 'CRUDE', 'BTC', 'ETH']
-            all_symbols.extend(popular_symbols)
-            
-            selected_symbol = st.selectbox(
-                "📈 Select Symbol",
-                sorted(set(all_symbols)),
-                index=0,
-                help="Choose the symbol for intraday analysis"
-            )
-        
-        with intraday_col2:
-            intraday_start = st.time_input(
-                "🕘 Start Time",
-                value=dtime(9, 15),
-                help="Market opening time or analysis start time"
-            )
-        
-        with intraday_col3:
-            intraday_end = st.time_input(
-                "🕕 End Time", 
-                value=dtime(15, 30),
-                help="Market closing time or analysis end time"
-            )
-        
-        # Analysis Date
-        analysis_date = user_config['date']
-        
-        # Generate analysis button
-        if st.button("🔮 Generate Planetary Analysis", type="primary"):
-            # Create datetime objects
-            start_datetime = datetime.combine(analysis_date, intraday_start)
-            end_datetime = datetime.combine(analysis_date, intraday_end)
-            
-            # Generate transits
-            with st.spinner(f"🌟 Analyzing planetary transits for {selected_symbol}..."):
-                transits = generate_intraday_transits(selected_symbol, start_datetime, end_datetime, scoring_engine)
-                swing_points = create_swing_analysis(transits, selected_symbol)
-            
-            # Display results
-            st.markdown(f"### 📊 Analysis Results for {selected_symbol} on {analysis_date}")
-            
-            # Summary metrics
-            summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
-            
-            bullish_periods = [t for t in transits if t['Signal'] == 'BULLISH']
-            bearish_periods = [t for t in transits if t['Signal'] == 'BEARISH']
-            
-            with summary_col1:
-                st.metric(
-                    "🟢 Bullish Periods", 
-                    len(bullish_periods),
-                    help="Number of bullish planetary alignments"
-                )
-            
-            with summary_col2:
-                st.metric(
-                    "🔴 Bearish Periods",
-                    len(bearish_periods), 
-                    help="Number of bearish planetary alignments"
-                )
-            
-            with summary_col3:
-                avg_score = sum(t['Score'] for t in transits) / len(transits) if transits else 0
-                st.metric(
-                    "📈 Average Score",
-                    f"{avg_score:.2f}",
-                    help="Overall planetary bias for the day"
-                )
-            
-            with summary_col4:
-                st.metric(
-                    "🎯 Swing Points",
-                    len(swing_points),
-                    help="Number of entry/exit signals detected"
-                )
-            
-            # Interactive chart
-            st.markdown("### 📈 Interactive Planetary Transit Chart")
-            chart = create_intraday_chart(transits, selected_symbol)
-            if chart:
-                st.plotly_chart(chart, use_container_width=True)
-            
-            # Swing Trading Signals
-            if swing_points:
-                st.markdown("### 🎯 Swing Trading Signals")
-                
-                for point in swing_points:
-                    signal_class = "bullish-card" if "BUY" in point['Type'] else "bearish-card"
-                    st.markdown(f"""
-                    <div class="metric-card {signal_class}">
-                        <h4>⏰ {point['Time']} - {point['Type']}</h4>
-                        <p><strong>Action:</strong> {point['Action']}</p>
-                        <p><strong>Score:</strong> {point['Score']:.2f} | <strong>Confidence:</strong> {point['Confidence']:.1%}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            # Detailed transit table with color coding
-            st.markdown("### 🔍 Detailed Transit Analysis")
-            
-            # Create enhanced transit DataFrame
-            transit_df = pd.DataFrame(transits)
-            
-            # Style the table with colors
-            def color_transit_rows(row):
-                signal = row['Signal']
-                if signal == 'BULLISH':
-                    return ['background-color: #dcfce7' for _ in row]
-                elif signal == 'BEARISH':
-                    return ['background-color: #fef2f2' for _ in row]
-                else:
-                    return ['background-color: #f9fafb' for _ in row]
-            
-            try:
-                # Apply styling
-                styled_transit_df = transit_df.style.apply(color_transit_rows, axis=1)
-                
-                # Format columns
-                styled_transit_df = styled_transit_df.format({
-                    'Score': '{:.2f}',
-                    'Strength': '{:.2f}',
-                    'Confidence': '{:.1%}'
-                })
-                
-                st.dataframe(styled_transit_df, use_container_width=True)
-                
-            except Exception as e:
-                st.warning("Advanced styling not available. Showing basic table.")
-                st.dataframe(transit_df, use_container_width=True)
-            
-            # Best periods summary
-            st.markdown("### ⭐ Key Periods Summary")
-            
-            best_bullish = max(bullish_periods, key=lambda x: x['Score']) if bullish_periods else None
-            worst_bearish = min(bearish_periods, key=lambda x: x['Score']) if bearish_periods else None
-            
-            period_col1, period_col2 = st.columns(2)
-            
-            with period_col1:
-                if best_bullish:
-                    st.markdown(f"""
-                    <div class="alert-box alert-success">
-                        <h4>🌟 Best Bullish Period</h4>
-                        <p><strong>Time:</strong> {best_bullish['Time']}</p>
-                        <p><strong>Aspect:</strong> {best_bullish['Planet A']} {best_bullish['Aspect']} {best_bullish['Planet B']}</p>
-                        <p><strong>Score:</strong> +{best_bullish['Score']:.2f}</p>
-                        <p><strong>Confidence:</strong> {best_bullish['Confidence']:.1%}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.info("No strong bullish periods found")
-            
-            with period_col2:
-                if worst_bearish:
-                    st.markdown(f"""
-                    <div class="alert-box alert-danger">
-                        <h4>⚠️ Most Bearish Period</h4>
-                        <p><strong>Time:</strong> {worst_bearish['Time']}</p>
-                        <p><strong>Aspect:</strong> {worst_bearish['Planet A']} {worst_bearish['Aspect']} {worst_bearish['Planet B']}</p>
-                        <p><strong>Score:</strong> {worst_bearish['Score']:.2f}</p>
-                        <p><strong>Confidence:</strong> {worst_bearish['Confidence']:.1%}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.info("No strong bearish periods found")
-            
-            # Export intraday analysis
-            st.markdown("### 📥 Export Intraday Analysis")
-            
-            export_col1, export_col2 = st.columns(2)
-            
-            with export_col1:
-                if st.button(f"📊 Export {selected_symbol} Analysis"):
-                    csv_data = transit_df.to_csv(index=False)
-                    st.download_button(
-                        label="💾 Download CSV",
-                        data=csv_data,
-                        file_name=f"{selected_symbol}_intraday_analysis_{analysis_date.strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-            
-            with export_col2:
-                if swing_points and st.button("🎯 Export Swing Signals"):
-                    swing_df = pd.DataFrame(swing_points)
-                    swing_csv = swing_df.to_csv(index=False)
-                    st.download_button(
-                        label="💾 Download Swing Signals",
-                        data=swing_csv,
-                        file_name=f"{selected_symbol}_swing_signals_{analysis_date.strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-        
-        else:
-            # Default view when analysis hasn't been run
-            st.markdown("""
-            ### 🌟 Welcome to Intraday Planetary Workshop!
-            
-            This advanced tool provides **minute-by-minute planetary transit analysis** for any symbol:
-            
-            **📊 Features:**
-            - Real-time planetary aspect calculations
-            - Color-coded bullish/bearish periods  
-            - Swing trading entry/exit signals
-            - Interactive transit charts
-            - Symbol-specific planetary biases
-            - Downloadable analysis reports
-            
-            **🎯 How to Use:**
-            1. Select your symbol from the dropdown
-            2. Set your preferred time range
-            3. Click "Generate Planetary Analysis"
-            4. Review bullish (green) and bearish (red) periods
-            5. Use swing signals for entry/exit timing
-            
-            **💡 Pro Tips:**
-            - Best results during market hours (9:15 AM - 3:30 PM)
-            - Green periods indicate favorable planetary energy
-            - Red periods suggest caution or short opportunities
-            - Swing signals show optimal entry/exit points
-            """)
-    
-    with tab8:
-    with tab8:
-        st.markdown("## ⚙️ Advanced Configuration & System Status")
-        
-        # Current settings summary
-        st.markdown("### 🎛️ Current Analysis Settings")
-        try:
-            config_summary = pd.DataFrame([
-                {'Parameter': 'Analysis Date', 'Value': str(user_config['date'])},
-                {'Parameter': 'Timezone', 'Value': user_config['timezone']},
-                {'Parameter': 'Market Hours', 'Value': f"{user_config['start_time']} - {user_config['end_time']}"},
-                {'Parameter': 'KP Premium', 'Value': f"{user_config['kp_premium']:.1f}"},
-                {'Parameter': 'Signal Threshold', 'Value': f"{user_config['signal_threshold']:.1f}"},
-                {'Parameter': 'Confidence Filter', 'Value': f"{user_config['confidence_filter']:.1%}"}
-            ])
-            st.dataframe(config_summary, use_container_width=True)
-            
-            # Aspect weights configuration
-            st.markdown("### ⚖️ Current Aspect Weights")
-            aspect_summary = pd.DataFrame([
-                {'Aspect': aspect, 'Weight': f"{weight:.1f}"}
-                for aspect, weight in user_config['aspect_weights'].items()
-            ])
-            st.dataframe(aspect_summary, use_container_width=True)
-            
-            # Export functionality
-            st.markdown("### 📥 Export Analysis Results")
-            
-            # Prepare export data
-            if sector_analyses:
-                current_sector_df = pd.DataFrame([
-                    {
-                        'Sector': s.sector,
-                        'Net Score': s.net_score,
-                        'Trend': s.trend,
-                        'Signal Strength': s.signal_strength,
-                        'Confidence': s.confidence,
-                        'Risk Level': s.risk_level,
-                        'Top Stocks': ', '.join(s.top_stocks)
-                    }
-                    for s in sector_analyses
-                ])
-            else:
-                current_sector_df = pd.DataFrame()
-            
-            export_data = {
-                'sector_rankings': current_sector_df,
-                'aspect_events': aspect_df,
-                'kp_events': kp_df
-            }
-            create_export_functionality(export_data, user_config)
-            
-            # Performance metrics
-            st.markdown("### 📊 Performance Metrics")
-            if sector_analyses:
-                perf_col1, perf_col2, perf_col3 = st.columns(3)
-                
-                perf_col1.metric("Sectors Analyzed", len(sector_analyses))
-                bullish_count = len([s for s in sector_analyses if s.net_score > 0])
-                perf_col1.metric("Bullish Sectors", f"{bullish_count}/{len(sector_analyses)}")
-                
-                avg_confidence = sum(s.confidence for s in sector_analyses) / len(sector_analyses)
-                perf_col2.metric("Average Confidence", f"{avg_confidence:.1%}")
-                high_conf_count = len([s for s in sector_analyses if s.confidence > 0.8])
-                perf_col2.metric("High Confidence", f"{high_conf_count}/{len(sector_analyses)}")
-                
-                strong_signals = len([s for s in sector_analyses if abs(s.net_score) > 2.0])
-                moderate_signals = len([s for s in sector_analyses if 1.0 <= abs(s.net_score) <= 2.0])
-                perf_col3.metric("Strong Signals", strong_signals)
-                perf_col3.metric("Moderate Signals", moderate_signals)
-            
-            # System information
-            st.markdown("### ℹ️ System Information")
-            system_status = f"""
-            **Swiss Ephemeris Status:** {'✅ Available' if SWISSEPH_AVAILABLE else '❌ Not Available (Demo Mode)'}  
-            **Plotly Charts Status:** {'✅ Available' if PLOTLY_AVAILABLE else '❌ Not Available (Basic Charts)'}  
-            **Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  
-            **Version:** 2.1.0 Pro (with Intraday Workshop)  
-            **Data Sources:** Swiss Ephemeris, KP Astrology System  
-            """
-            st.markdown(system_status)
-            
-            # Quick installation helper
-            if not SWISSEPH_AVAILABLE or not PLOTLY_AVAILABLE:
-                st.info("💡 **Quick Setup:** To get full functionality, run:")
-                st.code("pip install pyswisseph plotly", language="bash")
-            
-            # Data refresh controls
-            st.markdown("### 🔄 Data Management")
-            col1, col2 = st.columns(2)
-            
-            if col1.button("🔄 Refresh All Data", type="secondary"):
-                st.cache_data.clear()
-                st.success("Cache cleared! Refresh the page to reload data.")
-            
-            if col2.button("📊 Recalculate Scores", type="secondary"):
-                st.success("Scores will be recalculated on next data load.")
-            
-            # Debug information
-            st.markdown("### 🔧 Debug Information")
-            debug_info = {
-                'Sectors Loaded': len(config.SECTORS.get('SECTORS', {})) + len(config.SECTORS.get('INDICES', {})) + len(config.SECTORS.get('COMMODITIES', {})),
-                'Aspect Events': len(aspect_df) if not aspect_df.empty else 0,
-                'KP Events': len(kp_df) if not kp_df.empty else 0,
-                'Analysis Date': str(user_config['date']),
-                'Timezone': user_config['timezone'],
-                'Cache Status': 'Active' if hasattr(st, 'cache_data') else 'Disabled',
-                'Intraday Workshop': 'Available'
-            }
-            
-            st.json(debug_info)
-            
-        except Exception as e:
-            st.error(f"Settings tab error: {str(e)}")
-            st.info("Basic configuration display:")
-
-if __name__ == "__main__":
-    main()
+                    filtered_df = aspect_enhanced[abs(
