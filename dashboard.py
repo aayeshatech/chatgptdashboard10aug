@@ -1677,11 +1677,12 @@ def main():
         "🔍 Detailed Events",
         "📋 KP Analysis",
         "📅 Weekly Outlook",
-        "🗓️ Monthly Outlook", 
+        "🗓️ Monthly Outlook",
+        "⚡ Workshop Intraday",
         "⚙️ Advanced Settings"
     ])
     
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = tabs
     
     with tab1:
         st.markdown("## 🏭 Comprehensive Sector Analysis")
@@ -2307,6 +2308,243 @@ def main():
                           f"{worst_day['Date']} - {worst_day['Top Bearish']} (Score: {worst_day['BearScore']:.2f})")
     
     with tab7:
+        st.markdown("## ⚡ Workshop Intraday - Planetary Transit Analysis")
+        
+        # Symbol and Time Period Configuration
+        st.markdown("### 🎯 Configure Analysis Parameters")
+        
+        intraday_col1, intraday_col2, intraday_col3 = st.columns(3)
+        
+        with intraday_col1:
+            # Symbol selection with expanded options
+            all_symbols = []
+            for category, sector_dict in config.SECTORS.items():
+                for sector, stocks in sector_dict.items():
+                    all_symbols.extend(stocks)
+            
+            # Add popular symbols not in sectors
+            popular_symbols = ['NIFTY', 'BANKNIFTY', 'GOLD', 'SILVER', 'CRUDE', 'BTC', 'ETH']
+            all_symbols.extend(popular_symbols)
+            
+            selected_symbol = st.selectbox(
+                "📈 Select Symbol",
+                sorted(set(all_symbols)),
+                index=0,
+                help="Choose the symbol for intraday analysis"
+            )
+        
+        with intraday_col2:
+            intraday_start = st.time_input(
+                "🕘 Start Time",
+                value=dtime(9, 15),
+                help="Market opening time or analysis start time"
+            )
+        
+        with intraday_col3:
+            intraday_end = st.time_input(
+                "🕕 End Time", 
+                value=dtime(15, 30),
+                help="Market closing time or analysis end time"
+            )
+        
+        # Analysis Date
+        analysis_date = user_config['date']
+        
+        # Generate analysis button
+        if st.button("🔮 Generate Planetary Analysis", type="primary"):
+            # Create datetime objects
+            start_datetime = datetime.combine(analysis_date, intraday_start)
+            end_datetime = datetime.combine(analysis_date, intraday_end)
+            
+            # Generate transits
+            with st.spinner(f"🌟 Analyzing planetary transits for {selected_symbol}..."):
+                transits = generate_intraday_transits(selected_symbol, start_datetime, end_datetime, scoring_engine)
+                swing_points = create_swing_analysis(transits, selected_symbol)
+            
+            # Display results
+            st.markdown(f"### 📊 Analysis Results for {selected_symbol} on {analysis_date}")
+            
+            # Summary metrics
+            summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+            
+            bullish_periods = [t for t in transits if t['Signal'] == 'BULLISH']
+            bearish_periods = [t for t in transits if t['Signal'] == 'BEARISH']
+            
+            with summary_col1:
+                st.metric(
+                    "🟢 Bullish Periods", 
+                    len(bullish_periods),
+                    help="Number of bullish planetary alignments"
+                )
+            
+            with summary_col2:
+                st.metric(
+                    "🔴 Bearish Periods",
+                    len(bearish_periods), 
+                    help="Number of bearish planetary alignments"
+                )
+            
+            with summary_col3:
+                avg_score = sum(t['Score'] for t in transits) / len(transits) if transits else 0
+                st.metric(
+                    "📈 Average Score",
+                    f"{avg_score:.2f}",
+                    help="Overall planetary bias for the day"
+                )
+            
+            with summary_col4:
+                st.metric(
+                    "🎯 Swing Points",
+                    len(swing_points),
+                    help="Number of entry/exit signals detected"
+                )
+            
+            # Interactive chart
+            st.markdown("### 📈 Interactive Planetary Transit Chart")
+            chart = create_intraday_chart(transits, selected_symbol)
+            if chart:
+                st.plotly_chart(chart, use_container_width=True)
+            
+            # Swing Trading Signals
+            if swing_points:
+                st.markdown("### 🎯 Swing Trading Signals")
+                
+                for point in swing_points:
+                    signal_class = "bullish-card" if "BUY" in point['Type'] else "bearish-card"
+                    st.markdown(f"""
+                    <div class="metric-card {signal_class}">
+                        <h4>⏰ {point['Time']} - {point['Type']}</h4>
+                        <p><strong>Action:</strong> {point['Action']}</p>
+                        <p><strong>Score:</strong> {point['Score']:.2f} | <strong>Confidence:</strong> {point['Confidence']:.1%}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Detailed transit table with color coding
+            st.markdown("### 🔍 Detailed Transit Analysis")
+            
+            # Create enhanced transit DataFrame
+            transit_df = pd.DataFrame(transits)
+            
+            # Style the table with colors
+            def color_transit_rows(row):
+                signal = row['Signal']
+                if signal == 'BULLISH':
+                    return ['background-color: #dcfce7' for _ in row]
+                elif signal == 'BEARISH':
+                    return ['background-color: #fef2f2' for _ in row]
+                else:
+                    return ['background-color: #f9fafb' for _ in row]
+            
+            try:
+                # Apply styling
+                styled_transit_df = transit_df.style.apply(color_transit_rows, axis=1)
+                
+                # Format columns
+                styled_transit_df = styled_transit_df.format({
+                    'Score': '{:.2f}',
+                    'Strength': '{:.2f}',
+                    'Confidence': '{:.1%}'
+                })
+                
+                st.dataframe(styled_transit_df, use_container_width=True)
+                
+            except Exception as e:
+                st.warning("Advanced styling not available. Showing basic table.")
+                st.dataframe(transit_df, use_container_width=True)
+            
+            # Best periods summary
+            st.markdown("### ⭐ Key Periods Summary")
+            
+            best_bullish = max(bullish_periods, key=lambda x: x['Score']) if bullish_periods else None
+            worst_bearish = min(bearish_periods, key=lambda x: x['Score']) if bearish_periods else None
+            
+            period_col1, period_col2 = st.columns(2)
+            
+            with period_col1:
+                if best_bullish:
+                    st.markdown(f"""
+                    <div class="alert-box alert-success">
+                        <h4>🌟 Best Bullish Period</h4>
+                        <p><strong>Time:</strong> {best_bullish['Time']}</p>
+                        <p><strong>Aspect:</strong> {best_bullish['Planet A']} {best_bullish['Aspect']} {best_bullish['Planet B']}</p>
+                        <p><strong>Score:</strong> +{best_bullish['Score']:.2f}</p>
+                        <p><strong>Confidence:</strong> {best_bullish['Confidence']:.1%}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.info("No strong bullish periods found")
+            
+            with period_col2:
+                if worst_bearish:
+                    st.markdown(f"""
+                    <div class="alert-box alert-danger">
+                        <h4>⚠️ Most Bearish Period</h4>
+                        <p><strong>Time:</strong> {worst_bearish['Time']}</p>
+                        <p><strong>Aspect:</strong> {worst_bearish['Planet A']} {worst_bearish['Aspect']} {worst_bearish['Planet B']}</p>
+                        <p><strong>Score:</strong> {worst_bearish['Score']:.2f}</p>
+                        <p><strong>Confidence:</strong> {worst_bearish['Confidence']:.1%}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.info("No strong bearish periods found")
+            
+            # Export intraday analysis
+            st.markdown("### 📥 Export Intraday Analysis")
+            
+            export_col1, export_col2 = st.columns(2)
+            
+            with export_col1:
+                if st.button(f"📊 Export {selected_symbol} Analysis"):
+                    csv_data = transit_df.to_csv(index=False)
+                    st.download_button(
+                        label="💾 Download CSV",
+                        data=csv_data,
+                        file_name=f"{selected_symbol}_intraday_analysis_{analysis_date.strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+            
+            with export_col2:
+                if swing_points and st.button("🎯 Export Swing Signals"):
+                    swing_df = pd.DataFrame(swing_points)
+                    swing_csv = swing_df.to_csv(index=False)
+                    st.download_button(
+                        label="💾 Download Swing Signals",
+                        data=swing_csv,
+                        file_name=f"{selected_symbol}_swing_signals_{analysis_date.strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+        
+        else:
+            # Default view when analysis hasn't been run
+            st.markdown("""
+            ### 🌟 Welcome to Intraday Planetary Workshop!
+            
+            This advanced tool provides **minute-by-minute planetary transit analysis** for any symbol:
+            
+            **📊 Features:**
+            - Real-time planetary aspect calculations
+            - Color-coded bullish/bearish periods  
+            - Swing trading entry/exit signals
+            - Interactive transit charts
+            - Symbol-specific planetary biases
+            - Downloadable analysis reports
+            
+            **🎯 How to Use:**
+            1. Select your symbol from the dropdown
+            2. Set your preferred time range
+            3. Click "Generate Planetary Analysis"
+            4. Review bullish (green) and bearish (red) periods
+            5. Use swing signals for entry/exit timing
+            
+            **💡 Pro Tips:**
+            - Best results during market hours (9:15 AM - 3:30 PM)
+            - Green periods indicate favorable planetary energy
+            - Red periods suggest caution or short opportunities
+            - Swing signals show optimal entry/exit points
+            """)
+    
+    with tab8:
+    with tab8:
         st.markdown("## ⚙️ Advanced Configuration & System Status")
         
         # Current settings summary
@@ -2382,7 +2620,7 @@ def main():
             **Swiss Ephemeris Status:** {'✅ Available' if SWISSEPH_AVAILABLE else '❌ Not Available (Demo Mode)'}  
             **Plotly Charts Status:** {'✅ Available' if PLOTLY_AVAILABLE else '❌ Not Available (Basic Charts)'}  
             **Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  
-            **Version:** 2.0.0 Pro  
+            **Version:** 2.1.0 Pro (with Intraday Workshop)  
             **Data Sources:** Swiss Ephemeris, KP Astrology System  
             """
             st.markdown(system_status)
@@ -2406,12 +2644,13 @@ def main():
             # Debug information
             st.markdown("### 🔧 Debug Information")
             debug_info = {
-                'Sectors Loaded': len(config.SECTORS.get('SECTORS', {})) + len(config.SECTORS.get('INDICES', {})),
+                'Sectors Loaded': len(config.SECTORS.get('SECTORS', {})) + len(config.SECTORS.get('INDICES', {})) + len(config.SECTORS.get('COMMODITIES', {})),
                 'Aspect Events': len(aspect_df) if not aspect_df.empty else 0,
                 'KP Events': len(kp_df) if not kp_df.empty else 0,
                 'Analysis Date': str(user_config['date']),
                 'Timezone': user_config['timezone'],
-                'Cache Status': 'Active' if hasattr(st, 'cache_data') else 'Disabled'
+                'Cache Status': 'Active' if hasattr(st, 'cache_data') else 'Disabled',
+                'Intraday Workshop': 'Available'
             }
             
             st.json(debug_info)
