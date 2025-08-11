@@ -374,6 +374,119 @@ class PlanetaryTransits:
         
         return pd.DataFrame(sector_transits)
 
+    def generate_daily_transits(self, date_input: datetime.date) -> pd.DataFrame:
+        """Generate planetary transits for a single day"""
+        transits = []
+        base_time = datetime.combine(date_input, dtime(9, 0))
+        
+        # Generate 15-20 transit events throughout the day
+        for i in range(18):
+            event_time = base_time + timedelta(minutes=i*25 + np.random.randint(-10, 10))
+            
+            # Select planets and aspect
+            planet_a = self.planets[i % len(self.planets)]
+            planet_b = self.planets[(i + 3) % len(self.planets)]
+            aspect = self.aspects[i % len(self.aspects)]
+            
+            # Calculate score
+            score = self._calculate_transit_score(planet_a, planet_b, aspect, i)
+            
+            # Moon position for KP
+            moon_nak = self.nakshatras[i % len(self.nakshatras)]
+            
+            transits.append({
+                "Time": event_time.strftime("%H:%M"),
+                "Planet A": planet_a,
+                "Planet B": planet_b,
+                "Aspect": aspect,
+                "Exact°": (i * 13.7) % 360,  # Varied degrees
+                "Score": score,
+                "Signal": scoring.get_trend_direction(score),
+                "Strength": scoring.get_signal_strength(score),
+                "Moon Nakshatra": moon_nak,
+                "Star Lord": self.planets[(i + 1) % len(self.planets)],
+                "Sub Lord": self.planets[(i + 2) % len(self.planets)]
+            })
+        
+        return pd.DataFrame(transits)
+    
+    def _calculate_transit_score(self, planet_a: str, planet_b: str, aspect: str, seed: int) -> float:
+        """Calculate score for a transit"""
+        # Base planetary influences
+        score = 0.0
+        
+        # Planet A influence
+        if planet_a in ["Jupiter", "Venus", "Mercury", "Moon"]:
+            score += 1.0 + (seed % 3) * 0.5
+        elif planet_a in ["Saturn", "Mars", "Rahu", "Ketu"]:
+            score -= 1.0 + (seed % 3) * 0.5
+        else:  # Sun
+            score += 0.5
+        
+        # Planet B influence
+        if planet_b in ["Jupiter", "Venus", "Mercury", "Moon"]:
+            score += 0.8 + (seed % 2) * 0.3
+        elif planet_b in ["Saturn", "Mars", "Rahu", "Ketu"]:
+            score -= 0.8 + (seed % 2) * 0.3
+        else:  # Sun
+            score += 0.3
+        
+        # Aspect influence
+        aspect_multiplier = scoring.aspect_weights.get(aspect, 1.0)
+        score *= aspect_multiplier
+        
+        # Add some randomness
+        score += (seed % 100 - 50) / 100
+        
+        return round(score, 2)
+    
+    def generate_upcoming_transits(self, start_date: datetime.date, days: int = 7) -> List[Dict]:
+        """Generate upcoming major transits"""
+        upcoming = []
+        
+        for i in range(days):
+            current_date = start_date + timedelta(days=i)
+            
+            # Generate 2-3 major transits per day
+            for j in range(2 + i % 2):
+                transit_time = datetime.combine(current_date, dtime(10 + j * 4, 30))
+                
+                planet_a = self.planets[(i + j) % len(self.planets)]
+                planet_b = self.planets[(i + j + 2) % len(self.planets)]
+                aspect = self.aspects[(i + j) % len(self.aspects)]
+                
+                score = self._calculate_transit_score(planet_a, planet_b, aspect, i * 10 + j)
+                
+                upcoming.append({
+                    "Date": current_date.strftime("%Y-%m-%d"),
+                    "Time": transit_time.strftime("%H:%M"),
+                    "Event": f"{planet_a} {aspect} {planet_b}",
+                    "Score": score,
+                    "Impact": "High" if abs(score) > 2 else "Medium" if abs(score) > 1 else "Low",
+                    "Duration": f"{2 + j} hours",
+                    "Sectors Affected": self._get_affected_sectors(planet_a, planet_b, score)
+                })
+        
+        return upcoming
+    
+    def _get_affected_sectors(self, planet_a: str, planet_b: str, score: float) -> str:
+        """Get sectors most affected by transit"""
+        sector_influences = {
+            "Jupiter": ["BANKNIFTY", "PHARMA", "IT"],
+            "Venus": ["FMCG", "AUTO", "GOLD"],
+            "Mars": ["METAL", "ENERGY", "OIL_GAS"],
+            "Saturn": ["INFRASTRUCTURE", "METAL"],
+            "Mercury": ["IT", "TELECOM", "BANKNIFTY"],
+            "Rahu": ["CRYPTO", "TECH"],
+            "Moon": ["FMCG", "PHARMA"]
+        }
+        
+        affected = set()
+        affected.update(sector_influences.get(planet_a, []))
+        affected.update(sector_influences.get(planet_b, []))
+        
+        return ", ".join(list(affected)[:3]) if affected else "General Market"
+
 # Stock-Level Analysis System
 class StockAnalysisEngine:
     def __init__(self):
@@ -505,121 +618,8 @@ class StockAnalysisEngine:
         
         return stock_analysis
 
-# Initialize stock analysis engine
+# Initialize stock analysis engine and transit system
 stock_engine = StockAnalysisEngine()
-        """Generate planetary transits for a single day"""
-        transits = []
-        base_time = datetime.combine(date_input, dtime(9, 0))
-        
-        # Generate 15-20 transit events throughout the day
-        for i in range(18):
-            event_time = base_time + timedelta(minutes=i*25 + np.random.randint(-10, 10))
-            
-            # Select planets and aspect
-            planet_a = self.planets[i % len(self.planets)]
-            planet_b = self.planets[(i + 3) % len(self.planets)]
-            aspect = self.aspects[i % len(self.aspects)]
-            
-            # Calculate score
-            score = self._calculate_transit_score(planet_a, planet_b, aspect, i)
-            
-            # Moon position for KP
-            moon_nak = self.nakshatras[i % len(self.nakshatras)]
-            
-            transits.append({
-                "Time": event_time.strftime("%H:%M"),
-                "Planet A": planet_a,
-                "Planet B": planet_b,
-                "Aspect": aspect,
-                "Exact°": (i * 13.7) % 360,  # Varied degrees
-                "Score": score,
-                "Signal": scoring.get_trend_direction(score),
-                "Strength": scoring.get_signal_strength(score),
-                "Moon Nakshatra": moon_nak,
-                "Star Lord": self.planets[(i + 1) % len(self.planets)],
-                "Sub Lord": self.planets[(i + 2) % len(self.planets)]
-            })
-        
-        return pd.DataFrame(transits)
-    
-    def _calculate_transit_score(self, planet_a: str, planet_b: str, aspect: str, seed: int) -> float:
-        """Calculate score for a transit"""
-        # Base planetary influences
-        score = 0.0
-        
-        # Planet A influence
-        if planet_a in ["Jupiter", "Venus", "Mercury", "Moon"]:
-            score += 1.0 + (seed % 3) * 0.5
-        elif planet_a in ["Saturn", "Mars", "Rahu", "Ketu"]:
-            score -= 1.0 + (seed % 3) * 0.5
-        else:  # Sun
-            score += 0.5
-        
-        # Planet B influence
-        if planet_b in ["Jupiter", "Venus", "Mercury", "Moon"]:
-            score += 0.8 + (seed % 2) * 0.3
-        elif planet_b in ["Saturn", "Mars", "Rahu", "Ketu"]:
-            score -= 0.8 + (seed % 2) * 0.3
-        else:  # Sun
-            score += 0.3
-        
-        # Aspect influence
-        aspect_multiplier = scoring.aspect_weights.get(aspect, 1.0)
-        score *= aspect_multiplier
-        
-        # Add some randomness
-        score += (seed % 100 - 50) / 100
-        
-        return round(score, 2)
-    
-    def generate_upcoming_transits(self, start_date: datetime.date, days: int = 7) -> List[Dict]:
-        """Generate upcoming major transits"""
-        upcoming = []
-        
-        for i in range(days):
-            current_date = start_date + timedelta(days=i)
-            
-            # Generate 2-3 major transits per day
-            for j in range(2 + i % 2):
-                transit_time = datetime.combine(current_date, dtime(10 + j * 4, 30))
-                
-                planet_a = self.planets[(i + j) % len(self.planets)]
-                planet_b = self.planets[(i + j + 2) % len(self.planets)]
-                aspect = self.aspects[(i + j) % len(self.aspects)]
-                
-                score = self._calculate_transit_score(planet_a, planet_b, aspect, i * 10 + j)
-                
-                upcoming.append({
-                    "Date": current_date.strftime("%Y-%m-%d"),
-                    "Time": transit_time.strftime("%H:%M"),
-                    "Event": f"{planet_a} {aspect} {planet_b}",
-                    "Score": score,
-                    "Impact": "High" if abs(score) > 2 else "Medium" if abs(score) > 1 else "Low",
-                    "Duration": f"{2 + j} hours",
-                    "Sectors Affected": self._get_affected_sectors(planet_a, planet_b, score)
-                })
-        
-        return upcoming
-    
-    def _get_affected_sectors(self, planet_a: str, planet_b: str, score: float) -> str:
-        """Get sectors most affected by transit"""
-        sector_influences = {
-            "Jupiter": ["BANKNIFTY", "PHARMA", "IT"],
-            "Venus": ["FMCG", "AUTO", "GOLD"],
-            "Mars": ["METAL", "ENERGY", "OIL_GAS"],
-            "Saturn": ["INFRASTRUCTURE", "METAL"],
-            "Mercury": ["IT", "TELECOM", "BANKNIFTY"],
-            "Rahu": ["CRYPTO", "TECH"],
-            "Moon": ["FMCG", "PHARMA"]
-        }
-        
-        affected = set()
-        affected.update(sector_influences.get(planet_a, []))
-        affected.update(sector_influences.get(planet_b, []))
-        
-        return ", ".join(list(affected)[:3]) if affected else "General Market"
-
-# Initialize transit system
 transits = PlanetaryTransits()
 
 # Styling (same as before)
@@ -1983,100 +1983,3 @@ def main():
                 {"Parameter": "Time Resolution", "Value": user_config['time_resolution']}
             ])
             st.dataframe(config_df, use_container_width=True)
-            
-            # System information
-            st.markdown("#### ℹ️ System Information")
-            st.markdown(f"""
-            - **🪐 Plotly Charts:** {'✅ Available' if PLOTLY_AVAILABLE else '❌ Not Available'}
-            - **⏰ Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            - **🔢 Version:** 2.0.0 Complete Edition
-            - **📊 Sectors Loaded:** {sum(len(s) for category in config.SECTORS.values() for s in category.values())}
-            - **🪐 Transit Engine:** Active
-            - **📈 Intraday Analysis:** Available
-            - **📅 Multi-timeframe:** Available
-            """)
-            
-            # Performance metrics
-            if sector_results:
-                st.markdown("#### 📊 Analysis Performance")
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric("Sectors Analyzed", len(sector_results))
-                with col2:
-                    bullish_sectors = len([s for s in sector_results if s['Net Score'] > 0])
-                    st.metric("Bullish Sectors", f"{bullish_sectors}/{len(sector_results)}")
-                with col3:
-                    avg_confidence = sum(s['Confidence'] for s in sector_results) / len(sector_results)
-                    st.metric("Average Confidence", f"{avg_confidence:.1%}")
-            
-            # Export all data
-            st.markdown("#### 📥 Export Complete Analysis")
-            if st.button("📊 Export All Data", type="primary"):
-                export_data = {
-                    'sectors': pd.DataFrame(sector_results),
-                    'daily_transits': daily_transits,
-                    'configuration': config_df
-                }
-                
-                if user_config['export_format'] == "Excel (.xlsx)":
-                    buffer = io.BytesIO()
-                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                        for sheet_name, df in export_data.items():
-                            df.to_excel(writer, sheet_name=sheet_name, index=False)
-                    
-                    st.download_button(
-                        "💾 Download Excel Report",
-                        buffer.getvalue(),
-                        f"vedic_complete_analysis_{user_config['date']}.xlsx",
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                
-                elif user_config['export_format'] == "JSON (.json)":
-                    json_data = {
-                        'sectors': export_data['sectors'].to_dict('records'),
-                        'daily_transits': export_data['daily_transits'].to_dict('records'),
-                        'configuration': export_data['configuration'].to_dict('records'),
-                        'export_timestamp': datetime.now().isoformat()
-                    }
-                    
-                    st.download_button(
-                        "💾 Download JSON Data",
-                        json.dumps(json_data, indent=2),
-                        f"vedic_complete_analysis_{user_config['date']}.json",
-                        "application/json"
-                    )
-                
-                else:  # CSV
-                    csv_data = export_data['sectors'].to_csv(index=False)
-                    st.download_button(
-                        "💾 Download CSV",
-                        csv_data,
-                        f"vedic_sectors_analysis_{user_config['date']}.csv",
-                        "text/csv"
-                    )
-            
-            # Quick setup
-            if not PLOTLY_AVAILABLE:
-                st.info("💡 **Quick Setup:** For enhanced charts, run: `pip install plotly`")
-            
-            # Data management
-            st.markdown("#### 🔄 Data Management")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if st.button("🔄 Refresh All Data"):
-                    st.rerun()
-            
-            with col2:
-                if st.button("📊 Recalculate Analysis"):
-                    st.success("Analysis will refresh on next interaction.")
-    
-    except Exception as e:
-        st.error(f"Application error: {str(e)}")
-        st.info("Please try refreshing the page or adjusting your settings.")
-        st.markdown("**Error Details:**")
-        st.code(str(e))
-
-if __name__ == "__main__":
-    main()
