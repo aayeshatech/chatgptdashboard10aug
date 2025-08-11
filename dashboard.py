@@ -1,12 +1,6 @@
-
 # astro_transit_app.py
 # Streamlit app: Vedic Sidereal Astro Transit + Aspects + Moon Timeline (+ Ingress + Telegram format)
-# Author: ChatGPT
-#
-# Requirements:
-#   pip install streamlit pyswisseph pytz pandas
-# Run:
-#   streamlit run astro_transit_app.py
+# Robust ephemeris handling (fallback to MOSEPH if Swiss ephemeris files are missing).
 
 import math
 from datetime import datetime, timedelta, timezone
@@ -44,6 +38,22 @@ NAKSHATRAS = [
 NAK_DEG = 360.0 / 27.0
 
 ASPECTS = {0:"Conjunction",60:"Sextile",90:"Square",120:"Trine",180:"Opposition"}
+
+# ---- Robust Swiss Ephemeris flags ----
+USE_MOSEPH = False  # will be set True if we detect missing ephemeris files
+
+def _try_calc_ut(jd_ut, body):
+    """Try SWIEPH, then fallback to MOSEPH (built-in), to avoid file path issues."""
+    global USE_MOSEPH
+    # Prefer Swiss ephemeris if available
+    flag = (swe.FLG_SWIEPH if not USE_MOSEPH else swe.FLG_MOSEPH) | swe.FLG_SPEED
+    try:
+        return swe.calc_ut(jd_ut, body, flag)
+    except Exception:
+        # Switch to MOSEPH and try again
+        flag = swe.FLG_MOSEPH | swe.FLG_SPEED
+        USE_MOSEPH = True
+        return swe.calc_ut(jd_ut, body, flag)
 
 def normalize_angle(a):
     a = a % 360.0
@@ -85,16 +95,21 @@ def julday_from_dt(dt_utc):
     return swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute/60 + dt_utc.second/3600)
 
 def sidereal_longitude(body, jd_ut, ayanamsa):
-    flag = swe.FLG_SWIEPH | swe.FLG_SPEED
     if body == -1:
         ra = sidereal_longitude(swe.MEAN_NODE, jd_ut, ayanamsa)
         return normalize_angle(ra + 180.0)
-    lon, lat, dist, speed = swe.calc_ut(jd_ut, body, flag)
+    lon, lat, dist, speed = _try_calc_ut(jd_ut, body)
+    # sidereal conversion
     ay = swe.get_ayanamsa_ut(jd_ut)
     return normalize_angle(lon - ay)
 
 def planet_positions_for_date(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SIDM_LAHIRI):
     swe.set_sid_mode(ayanamsa_mode, 0, 0)
+    # Try to set ephemeris path; if not present, MOSEPH fallback will kick in automatically.
+    try:
+        swe.set_ephe_path("/usr/share/ephe")
+    except Exception:
+        pass
     dt_noon_local = datetime(date_local.year, date_local.month, date_local.day, 12, 0, 0)
     dt_noon_utc = to_utc(dt_noon_local, tzname)
     jd = julday_from_dt(dt_noon_utc)
@@ -147,6 +162,10 @@ def refine_exact_time(body_fast, body_slow, target_angle, start_utc, tzname, ay_
 def moon_aspect_timeline(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SIDM_LAHIRI,
                          orb_moon=6.0, step_minutes=15):
     swe.set_sid_mode(ayanamsa_mode, 0, 0)
+    try:
+        swe.set_ephe_path("/usr/share/ephe")
+    except Exception:
+        pass
     start_local = datetime(date_local.year, date_local.month, date_local.day, 0, 0, 0)
     end_local = start_local + timedelta(days=1)
     t_utc = to_utc(start_local, tzname); end_utc = to_utc(end_local, tzname)
@@ -176,8 +195,11 @@ def moon_aspect_timeline(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SI
     return pd.DataFrame(sorted(events, key=lambda x: x["Time"]))
 
 def scan_ingress(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SIDM_LAHIRI, step_minutes=10):
-    """Moon sign and nakshatra ingress times for the day."""
     swe.set_sid_mode(ayanamsa_mode, 0, 0)
+    try:
+        swe.set_ephe_path("/usr/share/ephe")
+    except Exception:
+        pass
     start_local = datetime(date_local.year, date_local.month, date_local.day, 0, 0, 0)
     end_local = start_local + timedelta(days=1)
     t_utc = to_utc(start_local, tzname); end_utc = to_utc(end_local, tzname)
@@ -186,49 +208,41 @@ def scan_ingress(date_local, tzname="Asia/Kolkata", ayanamsa_mode=swe.SIDM_LAHIR
 
     events = []
     cur = t_utc
-    # initial states
     lon0 = moon_lon(cur)
     sign0, _ = ecl_to_sign_deg(lon0)
     nak0, pada0 = nakshatra_for(lon0)
 
     while cur < end_utc:
-        cur += timedelta(minutes=step_minutes)
-        lon = moon_lon(cur)
+        nxt = cur + timedelta(minutes=step_minutes)
+        lon = moon_lon(nxt)
         sign, _ = ecl_to_sign_deg(lon)
         nak, pada = nakshatra_for(lon)
 
-        # Sign change
+        # Sign change refine
         if sign != sign0:
-            # refine around cur-step...cur
-            left = cur - timedelta(minutes=step_minutes)
-            # binary search
-            for _ in range(20):
-                mid = left + (cur-left)/2
+            lo, hi = cur, nxt
+            for _ in range(24):
+                mid = lo + (hi - lo)/2
                 s_mid, _ = ecl_to_sign_deg(moon_lon(mid))
-                if s_mid == sign0: left = mid
-                else: cur = mid
-            local_time = to_local(cur, tzname).strftime("%Y-%m-%d %H:%M")
-            events.append({"Time": local_time, "Event": f"Moon enters {sign}"})
+                if s_mid == sign0: lo = mid
+                else: hi = mid
+            events.append({"Time": to_local(hi, tzname).strftime("%Y-%m-%d %H:%M"),
+                           "Event": f"Moon enters {sign}"})
             sign0 = sign
 
-        # Nakshatra change
+        # Nakshatra change refine
         if nak != nak0:
-            left = cur - timedelta(minutes=step_minutes)
-            lo = left; hi = cur
-            for _ in range(20):
-                mid = lo + (hi-lo)/2
+            lo, hi = cur, nxt
+            for _ in range(24):
+                mid = lo + (hi - lo)/2
                 n_mid, _ = nakshatra_for(moon_lon(mid))
                 if n_mid == nak0: lo = mid
                 else: hi = mid
-            local_time = to_local(hi, tzname).strftime("%Y-%m-%d %H:%M")
-            events.append({"Time": local_time, "Event": f"Moon enters {nak}"})
+            events.append({"Time": to_local(hi, tzname).strftime("%Y-%m-%d %H:%M"),
+                           "Event": f"Moon enters {nak}"})
             nak0 = nak
 
-        # Pada change (optional: uncomment to log)
-        # if pada != pada0:
-        #     local_time = to_local(cur, tzname).strftime("%Y-%m-%d %H:%M")
-        #     events.append({"Time": local_time, "Event": f"Moon pada {nak}-{pada}"})
-        #     pada0 = pada
+        cur = nxt
 
     return pd.DataFrame(sorted(events, key=lambda x: x["Time"]))
 
@@ -332,4 +346,5 @@ st.subheader("📨 Telegram Alert Preview")
 msg = telegram_format(str(date_in), tz_in, pos_df, asp_df, moon_df, ingress_df)
 st.text_area("Formatted message (copy/paste to your bot):", value=msg, height=300)
 
-st.caption("Next: we can add KP sub-lord timeline and automatic Telegram posting if you share your bot token/chat ID (or use your existing NextLevelBot webhook).")
+if USE_MOSEPH:
+    st.info("Running with MOSEPH (built-in ephemeris). For higher precision, download Swiss ephemeris files and set swe.set_ephe_path(path).")
