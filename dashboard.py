@@ -463,6 +463,85 @@ def build_calendar_table(month_days, month_df):
     styled = df_disp.style.apply(color_fn, axis=1)
     return df_disp, styled
 
+
+def _aspect_strength_for_sort(aspect_name):
+    # heuristic strength for ranking daily "major" events
+    base = {"Conjunction": 1.0, "Opposition": 0.9, "Square": 0.8, "Trine": 0.7, "Sextile": 0.6}
+    return base.get(aspect_name, 0.5)
+
+def _duration_hint(aspect_name):
+    # rough duration text for swing persistence
+    if aspect_name in ("Conjunction","Opposition"):
+        return "FOR 5–7 DAYS"
+    if aspect_name in ("Square",):
+        return "FOR 4–6 DAYS"
+    if aspect_name in ("Trine","Sextile"):
+        return "FOR 3–5 DAYS"
+    return "FOR 2–4 DAYS"
+
+def build_transit_cards_for_range(start_date, days, tz_in, ay_mode, strict_kp, sectors, start_t, end_t, rules, kp_premium, net_threshold):
+    cards = []
+    # Build per-day rank + extract strongest 1–2 non-Moon aspects
+    for i in range(days):
+        d = (pd.Timestamp(start_date) + pd.Timedelta(days=i)).date()
+        asp, kp = cached_streams_for_date(d, tz_in, ay_mode, strict_kp)
+        # strongest aspects (exclude Moon to avoid clutter)
+        if asp.empty:
+            daily_events = []
+        else:
+            df = asp.copy()
+            df = df[(df["Planet A"]!="Moon") & (df["Planet B"]!="Moon")]
+            if df.empty:
+                daily_events = []
+            else:
+                # crude strength: aspect weight + benefic/malefic sum
+                df["rough"] = df.apply(lambda r: _aspect_strength_for_sort(r["Aspect"]) +                     (1 if r["Planet A"] in ("Jupiter","Venus") else 0) +                     (1 if r["Planet B"] in ("Jupiter","Venus") else 0) +                     (-0.6 if r["Planet A"] in ("Saturn","Mars") else 0) +                     (-0.6 if r["Planet B"] in ("Saturn","Mars") else 0), axis=1)
+                df = df.sort_values(["rough","Time"], ascending=[False, True]).head(2)
+                daily_events = df.to_dict("records")
+        # sector rank for that day
+        rdf = build_sector_overview(sectors, asp, kp, tz_in, d, start_t, end_t, kp_premium=float(kp_premium), net_threshold=float(net_threshold), rules=rules)
+        if rdf.empty:
+            top_sector = "-"; trend = "NEUTRAL"; netscore = 0
+        else:
+            top = rdf.iloc[0]
+            top_sector, netscore = top["Sector"], float(top["NetScore"])
+            trend = "BULLISH" if netscore > net_threshold else ("BEARISH" if netscore < -net_threshold else "NEUTRAL")
+        # build cards
+        for ev in (daily_events if daily_events else [{}]):
+            if daily_events:
+                title = f"{pd.to_datetime(ev['Time']).strftime('%a, %b %d')} — {ev['Planet A']} {ev['Aspect'].lower()} {ev['Planet B']}"
+                impact = f"{trend} {_duration_hint(ev['Aspect'])}"
+                event_text = f"{ev['Planet A']} {ev['Aspect'].lower()} {ev['Planet B']}"
+            else:
+                title = f"{pd.Timestamp(d).strftime('%a, %b %d')} — Sector Bias"
+                impact = f"{trend} FOR 1 DAY"
+                event_text = "Sector bias from combined astro factors"
+            cards.append({
+                "date": str(d),
+                "title": title,
+                "event": event_text,
+                "impact": impact,
+                "sector": top_sector,
+                "netscore": round(netscore,2)
+            })
+    return cards
+
+def render_cards(cards, header):
+    st.markdown(f"### {header}")
+    if not cards:
+        st.info("No transits found.")
+        return
+    for c in cards:
+        color = "#19c37d" if "BULLISH" in c["impact"] else ("#f7766d" if "BEARISH" in c["impact"] else "#f5a623")
+        st.markdown(f"""
+<div style='border:1px solid #333;padding:12px;border-radius:8px;background:#0e1117;margin-bottom:8px;'>
+  <div style='font-weight:600;color:#8ab4ff'>{c['title']}</div>
+  <div><strong>Event:</strong> {c['event']}</div>
+  <div><strong>Impact:</strong> <span style='color:{color};font-weight:700'>{c['impact']}</span></div>
+  <div><strong>Affected Sector:</strong> {c['sector']} &nbsp; <span style='opacity:.7'>(NetScore {c['netscore']})</span></div>
+</div>
+""", unsafe_allow_html=True)
+
 # ---------------- UI ----------------
 st.set_page_config(page_title="Vedic Sidereal — KP Strict + Sector Ranking", layout="wide")
 st.title("🪐 Vedic Sidereal — Sector Ranking + KP Strict")
@@ -760,6 +839,11 @@ with tabs[4]:
     week_df = pd.DataFrame(rows)
     st.dataframe(week_df, use_container_width=True)
 
+    with st.expander("🔭 Next 7 Days — Major Transits", expanded=False):
+        cards = build_transit_cards_for_range(days_py[0], 7, tz_in, ay_mode, strict_kp, sectors_w, w_start_t, w_end_t, rules_current, st.session_state.kp_premium, st.session_state.net_threshold)
+        render_cards(cards, "Upcoming planetary movements affecting sectors:")
+
+
     c1, c2 = st.columns(2)
     with c1:
         day_pick = st.selectbox("Pick a day", [str(d) for d in days_py], key="weekly_day_pick")
@@ -852,6 +936,11 @@ with tabs[5]:
                              "Top Bearish": bot_bear["Sector"], "BearScore": bot_bear["NetScore"]})
     month_df = pd.DataFrame(rows)
     st.dataframe(month_df, use_container_width=True)
+
+    with st.expander("🔭 This Month — Major Transits", expanded=False):
+        cards = build_transit_cards_for_range(month_days[0], len(month_days), tz_in, ay_mode, strict_kp, sectors_m, m_start_t, m_end_t, rules_current, st.session_state.kp_premium, st.session_state.net_threshold)
+        render_cards(cards, "Upcoming planetary movements affecting sectors:")
+
 
     # Calendar heatmap by top-sector NetScore (pandas Styler; no extra installs)
     disp_df, styled = build_calendar_table(month_days, month_df[['Date','NetScore']])
