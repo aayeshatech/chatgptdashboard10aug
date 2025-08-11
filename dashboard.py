@@ -8,8 +8,17 @@ import pytz
 import pandas as pd
 import streamlit as st
 import calendar as _cal
-import plotly.express as px
-import plotly.graph_objects as go
+
+# Plotly imports with fallback
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    px = None
+    go = None
+
 from concurrent.futures import ThreadPoolExecutor
 
 # ---------------- Enhanced Configuration ----------------
@@ -675,67 +684,72 @@ def create_sector_performance_chart(sector_data: List[SectorAnalysis]):
     if not sector_data:
         return None
     
-    df = pd.DataFrame([
-        {
-            'Sector': s.sector,
-            'Net Score': s.net_score,
-            'Confidence': s.confidence,
-            'Signal Strength': s.signal_strength,
-            'Trend': s.trend
-        }
-        for s in sector_data
-    ])
+    if not PLOTLY_AVAILABLE:
+        st.warning("📊 Plotly not available. Install with: `pip install plotly`")
+        return None
     
-    # Sort by score for better visualization
-    df = df.sort_values('Net Score', ascending=True)
-    
-    # Create horizontal bar chart
-    fig = px.bar(
-        df,
-        x='Net Score',
-        y='Sector',
-        orientation='h',
-        color='Net Score',
-        color_continuous_scale='RdYlGn',
-        color_continuous_midpoint=0,
-        title="🏭 Sector Performance Ranking",
-        labels={
-            'Net Score': 'Astrological Score',
-            'Sector': 'Market Sector'
-        },
-        hover_data=['Confidence', 'Signal Strength'],
-        height=config.UI_SETTINGS["chart_height"]
-    )
-    
-    # Customize layout
-    fig.update_layout(
-        font=dict(size=12),
-        title_font=dict(size=18, color='#1f2937'),
-        showlegend=False,
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        coloraxis_colorbar=dict(
-            title="Score",
-            titlefont_size=12,
-            tickfont_size=10
+    try:
+        df = pd.DataFrame([
+            {
+                'Sector': s.sector,
+                'Net Score': s.net_score,
+                'Confidence': s.confidence,
+                'Signal Strength': s.signal_strength,
+                'Trend': s.trend
+            }
+            for s in sector_data
+        ])
+        
+        # Sort by score for better visualization
+        df = df.sort_values('Net Score', ascending=True)
+        
+        # Create horizontal bar chart
+        fig = px.bar(
+            df,
+            x='Net Score',
+            y='Sector',
+            orientation='h',
+            color='Net Score',
+            color_continuous_scale='RdYlGn',
+            color_continuous_midpoint=0,
+            title="🏭 Sector Performance Ranking",
+            labels={
+                'Net Score': 'Astrological Score',
+                'Sector': 'Market Sector'
+            },
+            hover_data=['Confidence', 'Signal Strength'],
+            height=450
         )
-    )
-    
-    # Add zero line
-    fig.add_vline(x=0, line_dash="dash", line_color="gray", line_width=1, opacity=0.5)
-    
-    # Add annotations for extreme values
-    for _, row in df.iterrows():
-        if abs(row['Net Score']) >= 2.0:
-            fig.add_annotation(
-                x=row['Net Score'],
-                y=row['Sector'], 
-                text=f"{get_trend_emoji(row['Net Score'])}",
-                showarrow=False,
-                font=dict(size=16)
-            )
-    
-    return fig
+        
+        # Simplified layout update to avoid errors
+        fig.update_layout(
+            showlegend=False,
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            title_x=0.5,
+            margin=dict(l=50, r=50, t=80, b=50)
+        )
+        
+        # Add zero line
+        fig.add_vline(x=0, line_dash="dash", line_color="gray", line_width=1, opacity=0.5)
+        
+        # Simplified annotations for extreme values
+        for _, row in df.iterrows():
+            if abs(row['Net Score']) >= 2.0:
+                emoji = "🚀" if row['Net Score'] > 0 else "📉"
+                fig.add_annotation(
+                    x=row['Net Score'],
+                    y=row['Sector'], 
+                    text=emoji,
+                    showarrow=False,
+                    font_size=16
+                )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"Chart creation failed: {str(e)}")
+        return None
 
 def create_enhanced_data_table(df: pd.DataFrame, table_type: str = "sector"):
     """Create enhanced data tables with better formatting"""
@@ -743,28 +757,40 @@ def create_enhanced_data_table(df: pd.DataFrame, table_type: str = "sector"):
         st.info(f"No {table_type} data available.")
         return
     
-    if table_type == "sector":
-        # Add visual indicators
-        if 'Net Score' in df.columns:
-            df['Trend Indicator'] = df['Net Score'].apply(lambda x: f"{get_trend_emoji(x)} {get_signal_strength(x)}")
+    try:
+        if table_type == "sector":
+            # Add visual indicators
+            if 'Net Score' in df.columns:
+                df['Trend Indicator'] = df['Net Score'].apply(lambda x: f"{get_trend_emoji(x)} {get_signal_strength(x)}")
+                
+            # Format numeric columns
+            numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
+            format_dict = {col: '{:.2f}' for col in numeric_cols}
             
-        # Format numeric columns
-        numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
-        format_dict = {col: '{:.2f}' for col in numeric_cols}
+            # Apply styling with error handling
+            try:
+                styled_df = df.style.format(format_dict)
+                if 'Net Score' in df.columns:
+                    styled_df = styled_df.background_gradient(subset=['Net Score'], cmap='RdYlGn', center=0)
+                
+                styled_df = styled_df.set_table_styles([
+                    {'selector': 'thead th', 'props': [('background-color', '#f8fafc'), ('font-weight', 'bold')]},
+                    {'selector': 'tbody tr:hover', 'props': [('background-color', '#f1f5f9')]}
+                ])
+                
+                st.dataframe(styled_df, use_container_width=True, height=400)
+            except Exception as style_error:
+                st.warning(f"Table styling failed: {style_error}")
+                st.dataframe(df, use_container_width=True, height=400)
         
-        # Apply styling
-        styled_df = df.style.format(format_dict)\
-                           .background_gradient(subset=['Net Score'], cmap='RdYlGn', center=0)\
-                           .set_table_styles([
-                               {'selector': 'thead th', 'props': [('background-color', '#f8fafc'), ('font-weight', 'bold')]},
-                               {'selector': 'tbody tr:hover', 'props': [('background-color', '#f1f5f9')]}
-                           ])
-        
-        st.dataframe(styled_df, use_container_width=True, height=400)
-    
-    else:
-        # General table formatting
-        st.dataframe(df, use_container_width=True, height=400)
+        else:
+            # General table formatting
+            st.dataframe(df, use_container_width=True, height=400)
+            
+    except Exception as e:
+        st.error(f"Table creation error: {str(e)}")
+        st.write("Raw data:")
+        st.write(df)
 
 def create_alert_system(sector_data: List[SectorAnalysis]):
     """Create intelligent alert system"""
@@ -906,9 +932,19 @@ def main():
     apply_custom_css()
     
     # Check dependencies
+    dependency_issues = []
+    
     if not SWISSEPH_AVAILABLE:
-        st.error("⚠️ **Missing Dependency**: pyswisseph not available. Install with: `pip install pyswisseph`")
-        st.info("Using demo mode with simulated data.")
+        dependency_issues.append("⚠️ **pyswisseph** not available. Install with: `pip install pyswisseph`")
+    
+    if not PLOTLY_AVAILABLE:
+        dependency_issues.append("⚠️ **plotly** not available. Install with: `pip install plotly`")
+    
+    if dependency_issues:
+        st.error("Missing Dependencies:")
+        for issue in dependency_issues:
+            st.error(issue)
+        st.info("Running in demo mode with simulated data and basic visualizations.")
     
     # Main header
     create_main_header()
@@ -920,54 +956,87 @@ def main():
     scoring_engine = EnhancedScoringEngine(config)
     
     # Load data with progress indication
-    with st.spinner("🔮 Computing astrological calculations..."):
-        progress_bar = st.progress(0)
+    try:
+        with st.spinner("🔮 Computing astrological calculations..."):
+            progress_bar = st.progress(0)
+            
+            # Load planetary data
+            progress_bar.progress(25)
+            aspect_df = cached_planetary_timeline(user_config['date'], user_config['timezone'])
+            
+            # Load KP data
+            progress_bar.progress(50) 
+            kp_df = cached_kp_timeline(user_config['date'], user_config['timezone'])
+            
+            # Process sectors
+            progress_bar.progress(75)
+            
+            # Complete
+            progress_bar.progress(100)
+            progress_bar.empty()
+            
+    except Exception as e:
+        st.error(f"Data loading error: {str(e)}")
+        st.info("Using fallback demo data...")
         
-        # Simulate progress for demo
-        for i in range(100):
-            progress_bar.progress(i + 1)
-            if i == 25:
-                aspect_df = cached_planetary_timeline(user_config['date'], user_config['timezone'])
-            elif i == 50:
-                kp_df = cached_kp_timeline(user_config['date'], user_config['timezone'])
-            elif i == 75:
-                # Process sector analysis
-                pass
+        # Fallback data
+        aspect_df = pd.DataFrame({
+            'Time': ['2024-01-01 10:00', '2024-01-01 14:00'],
+            'Planet A': ['Jupiter', 'Venus'],
+            'Planet B': ['Mars', 'Saturn'],
+            'Aspect': ['Trine', 'Square'],
+            'Exact°': [120, 90],
+            'Base Score': [1.5, -1.2]
+        })
         
-        progress_bar.empty()
+        kp_df = pd.DataFrame({
+            'Planet': ['Mo', 'Mo'],
+            'Date': ['2024-01-01', '2024-01-01'],
+            'Time': ['10:30:00', '13:45:00'],
+            'Star Lord': ['Jupiter', 'Saturn'],
+            'Sub Lord': ['Venus', 'Mars']
+        })
     
     # Generate sector analysis data
-    sectors_flat = {}
-    for category, sector_dict in config.SECTORS.items():
-        sectors_flat.update(sector_dict)
-    
-    sector_analyses = []
-    for sector_name, stocks in sectors_flat.items():
-        # Simulate sector analysis
-        base_score = (hash(sector_name) % 200 - 100) / 20  # Random score between -5 and 5
-        confidence = min(0.95, 0.6 + abs(base_score) * 0.1)
+    try:
+        sectors_flat = {}
+        for category, sector_dict in config.SECTORS.items():
+            sectors_flat.update(sector_dict)
         
-        analysis = SectorAnalysis(
-            sector=sector_name,
-            net_score=round(base_score, 2),
-            avg_per_stock=round(base_score / max(len(stocks), 1), 2),
-            confidence=confidence,
-            trend=scoring_engine.classify_signal(base_score),
-            signal_strength=get_signal_strength(base_score),
-            top_stocks=stocks[:3],
-            events_count={"bullish": max(0, int(base_score)), "bearish": max(0, int(-base_score))},
-            risk_level="High" if abs(base_score) > 2 else "Medium" if abs(base_score) > 1 else "Low"
-        )
-        sector_analyses.append(analysis)
-    
-    # Sort by score
-    sector_analyses.sort(key=lambda x: x.net_score, reverse=True)
+        sector_analyses = []
+        for sector_name, stocks in sectors_flat.items():
+            # Simulate sector analysis with more realistic data
+            base_score = (hash(sector_name + str(user_config['date'])) % 200 - 100) / 25  # Score between -4 and 4
+            confidence = min(0.95, max(0.3, 0.6 + abs(base_score) * 0.1))
+            
+            analysis = SectorAnalysis(
+                sector=sector_name,
+                net_score=round(base_score, 2),
+                avg_per_stock=round(base_score / max(len(stocks), 1), 2),
+                confidence=confidence,
+                trend=scoring_engine.classify_signal(base_score),
+                signal_strength=get_signal_strength(base_score),
+                top_stocks=stocks[:3] if stocks else [],
+                events_count={"bullish": max(0, int(base_score)), "bearish": max(0, int(-base_score))},
+                risk_level="High" if abs(base_score) > 2 else "Medium" if abs(base_score) > 1 else "Low"
+            )
+            sector_analyses.append(analysis)
+        
+        # Sort by score
+        sector_analyses.sort(key=lambda x: x.net_score, reverse=True)
+        
+    except Exception as e:
+        st.error(f"Sector analysis error: {str(e)}")
+        sector_analyses = []
     
     # Create main dashboard
-    create_executive_summary(sector_analyses)
-    
-    # Alert system
-    create_alert_system(sector_analyses)
+    if sector_analyses:
+        create_executive_summary(sector_analyses)
+        # Alert system
+        create_alert_system(sector_analyses)
+    else:
+        st.warning("⚠️ No sector data available. Please check your configuration or try refreshing the page.")
+        st.info("This may be due to data loading issues or configuration problems.")
     
     # Create tabs for detailed analysis
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -985,76 +1054,137 @@ def main():
         chart = create_sector_performance_chart(sector_analyses)
         if chart:
             st.plotly_chart(chart, use_container_width=True)
+        elif sector_analyses:
+            # Fallback to simple Streamlit chart
+            st.markdown("### 📊 Sector Performance (Simple View)")
+            chart_df = pd.DataFrame([
+                {'Sector': s.sector, 'Score': s.net_score} for s in sector_analyses
+            ]).sort_values('Score', ascending=False)
+            
+            st.bar_chart(chart_df.set_index('Sector')['Score'])
         
         # Enhanced sector table
-        sector_df = pd.DataFrame([
-            {
-                'Sector': s.sector,
-                'Net Score': s.net_score,
-                'Trend': s.trend,
-                'Signal Strength': s.signal_strength,
-                'Confidence': s.confidence,
-                'Risk Level': s.risk_level,
-                'Top Stocks': ', '.join(s.top_stocks)
-            }
-            for s in sector_analyses
-        ])
-        
-        create_enhanced_data_table(sector_df, "sector")
-        
-        # Sector selector for detailed analysis
-        st.markdown("### 🎯 Detailed Sector Breakdown")
-        selected_sector = st.selectbox(
-            "Select sector for detailed analysis:",
-            [s.sector for s in sector_analyses],
-            index=0
-        )
-        
-        selected_analysis = next(s for s in sector_analyses if s.sector == selected_sector)
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Net Score", f"{selected_analysis.net_score:.2f}")
-        with col2:
-            st.metric("Confidence", f"{selected_analysis.confidence:.1%}")
-        with col3:
-            st.metric("Risk Level", selected_analysis.risk_level)
-        
-        st.markdown(f"**Top Performing Stocks:** {', '.join(selected_analysis.top_stocks)}")
+        if sector_analyses:
+            sector_df = pd.DataFrame([
+                {
+                    'Sector': s.sector,
+                    'Net Score': s.net_score,
+                    'Trend': s.trend,
+                    'Signal Strength': s.signal_strength,
+                    'Confidence': s.confidence,
+                    'Risk Level': s.risk_level,
+                    'Top Stocks': ', '.join(s.top_stocks)
+                }
+                for s in sector_analyses
+            ])
+            
+            create_enhanced_data_table(sector_df, "sector")
+            
+            # Sector selector for detailed analysis
+            st.markdown("### 🎯 Detailed Sector Breakdown")
+            selected_sector = st.selectbox(
+                "Select sector for detailed analysis:",
+                [s.sector for s in sector_analyses],
+                index=0
+            )
+            
+            selected_analysis = next(s for s in sector_analyses if s.sector == selected_sector)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Net Score", f"{selected_analysis.net_score:.2f}")
+            with col2:
+                st.metric("Confidence", f"{selected_analysis.confidence:.1%}")
+            with col3:
+                st.metric("Risk Level", selected_analysis.risk_level)
+            
+            st.markdown(f"**Top Performing Stocks:** {', '.join(selected_analysis.top_stocks)}")
+        else:
+            st.warning("No sector data available for analysis.")
     
     with tab2:
         st.markdown("## 📈 Performance Visualizations")
         
-        # Score distribution
-        scores = [s.net_score for s in sector_analyses]
-        fig_hist = px.histogram(
-            x=scores,
-            nbins=15,
-            title="Distribution of Sector Scores",
-            labels={'x': 'Astrological Score', 'y': 'Number of Sectors'},
-            color_discrete_sequence=['#3b82f6']
-        )
-        fig_hist.update_layout(showlegend=False)
-        st.plotly_chart(fig_hist, use_container_width=True)
-        
-        # Confidence vs Score scatter
-        conf_score_df = pd.DataFrame([
-            {'Sector': s.sector, 'Score': s.net_score, 'Confidence': s.confidence}
-            for s in sector_analyses
-        ])
-        
-        fig_scatter = px.scatter(
-            conf_score_df,
-            x='Score',
-            y='Confidence', 
-            hover_name='Sector',
-            title="Score vs Confidence Analysis",
-            labels={'Score': 'Astrological Score', 'Confidence': 'Prediction Confidence'},
-            color='Score',
-            color_continuous_scale='RdYlGn',
-            color_continuous_midpoint=0
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        if not PLOTLY_AVAILABLE:
+            st.warning("📊 Plotly not available for advanced charts. Showing summary metrics instead.")
+            
+            # Fallback to simple metrics
+            if sector_analyses:
+                scores = [s.net_score for s in sector_analyses]
+                confidences = [s.confidence for s in sector_analyses]
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Average Score", f"{sum(scores)/len(scores):.2f}")
+                with col2:
+                    st.metric("Highest Score", f"{max(scores):.2f}")
+                with col3:
+                    st.metric("Lowest Score", f"{min(scores):.2f}")
+                with col4:
+                    st.metric("Avg Confidence", f"{sum(confidences)/len(confidences):.1%}")
+                
+                # Simple bar chart using Streamlit
+                chart_df = pd.DataFrame([
+                    {'Sector': s.sector, 'Score': s.net_score} for s in sector_analyses
+                ]).sort_values('Score', ascending=False)
+                
+                st.bar_chart(chart_df.set_index('Sector')['Score'])
+        else:
+            try:
+                # Score distribution
+                scores = [s.net_score for s in sector_analyses]
+                if scores:
+                    fig_hist = px.histogram(
+                        x=scores,
+                        nbins=15,
+                        title="Distribution of Sector Scores",
+                        labels={'x': 'Astrological Score', 'y': 'Number of Sectors'},
+                        color_discrete_sequence=['#3b82f6']
+                    )
+                    fig_hist.update_layout(
+                        showlegend=False,
+                        plot_bgcolor='white',
+                        paper_bgcolor='white'
+                    )
+                    st.plotly_chart(fig_hist, use_container_width=True)
+                
+                # Confidence vs Score scatter
+                conf_score_df = pd.DataFrame([
+                    {'Sector': s.sector, 'Score': s.net_score, 'Confidence': s.confidence}
+                    for s in sector_analyses
+                ])
+                
+                if not conf_score_df.empty:
+                    fig_scatter = px.scatter(
+                        conf_score_df,
+                        x='Score',
+                        y='Confidence', 
+                        hover_name='Sector',
+                        title="Score vs Confidence Analysis",
+                        labels={'Score': 'Astrological Score', 'Confidence': 'Prediction Confidence'},
+                        color='Score',
+                        color_continuous_scale='RdYlGn',
+                        color_continuous_midpoint=0
+                    )
+                    fig_scatter.update_layout(
+                        plot_bgcolor='white',
+                        paper_bgcolor='white'
+                    )
+                    st.plotly_chart(fig_scatter, use_container_width=True)
+            except Exception as e:
+                st.error(f"Chart visualization error: {str(e)}")
+                st.info("Showing data in table format instead.")
+                
+                # Fallback to simple metrics
+                if sector_analyses:
+                    scores = [s.net_score for s in sector_analyses]
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Average Score", f"{sum(scores)/len(scores):.2f}")
+                    with col2:
+                        st.metric("Highest Score", f"{max(scores):.2f}")
+                    with col3:
+                        st.metric("Lowest Score", f"{min(scores):.2f}")
     
     with tab3:
         st.markdown("## 🔍 Detailed Astrological Events")
@@ -1122,10 +1252,21 @@ def main():
         with st.expander("ℹ️ System Information", expanded=False):
             st.markdown(f"""
             **Swiss Ephemeris Status:** {'✅ Available' if SWISSEPH_AVAILABLE else '❌ Not Available (Demo Mode)'}  
+            **Plotly Charts Status:** {'✅ Available' if PLOTLY_AVAILABLE else '❌ Not Available (Basic Charts)'}  
             **Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  
             **Version:** 2.0.0 Pro  
             **Data Sources:** Swiss Ephemeris, KP Astrology System  
+            
+            **Installation Instructions:**
+            ```bash
+            pip install pyswisseph plotly streamlit pytz pandas
+            ```
             """)
+            
+        # Quick installation helper
+        if not SWISSEPH_AVAILABLE or not PLOTLY_AVAILABLE:
+            st.info("💡 **Quick Setup:** To get full functionality, run the following command:")
+            st.code("pip install pyswisseph plotly", language="bash")
 
 if __name__ == "__main__":
     main()
