@@ -365,7 +365,7 @@ def proximity_weight(row):
         return 1.0
     return 1.0
 
-def sector_scores_for_window(sector_syms, asp_df, kp_df, tz_in, date_in, start_t, end_t, asset_class):
+def sector_scores_for_window(sector_syms, asp_df, kp_df, tz_in, date_in, start_t, end_t, asset_class, kp_premium=1.2, rules=None):
     tz = pytz.timezone(tz_in)
     start_local = tz.localize(datetime.combine(date_in, start_t))
     end_local = tz.localize(datetime.combine(date_in, end_t))
@@ -380,14 +380,14 @@ def sector_scores_for_window(sector_syms, asp_df, kp_df, tz_in, date_in, start_t
 
     # Precompute numeric scores for aspect rows
     if not dfA.empty:
-        dfA["Score"] = [score_event(r, asset_class, DEFAULT_RULES) for _, r in dfA.iterrows()]
+        dfA["Score"] = [score_event(r, asset_class, rules or DEFAULT_RULES) for _, r in dfA.iterrows()]
         dfA["w"] = [1.0]*len(dfA)  # we don't know exact proximity here, keep 1.0
     else:
         dfA["Score"] = []; dfA["w"] = []
     # KP-only rows
     if not dfK.empty:
-        dfK["Score"] = [score_kp_only(r, asset_class, DEFAULT_RULES) for _, r in dfK.iterrows()]
-        dfK["w"] = [1.2]*len(dfK)  # KP premium
+        dfK["Score"] = [score_kp_only(r, asset_class, rules or DEFAULT_RULES) for _, r in dfK.iterrows()]
+        dfK["w"] = [kp_premium]*len(dfK)  # KP premium (tunable)
         dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
     else:
         dfK["Score"] = []; dfK["w"] = []
@@ -404,15 +404,33 @@ def sector_scores_for_window(sector_syms, asp_df, kp_df, tz_in, date_in, start_t
     confidence = min(1.0, abs(total_score) / abs_total)
     return total_score, avg_per_symbol, confidence
 
-def build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t, end_t):
+def build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t, end_t, kp_premium=1.2, net_threshold=0.25, rules=None):
     rows = []
     for sec, syms in sectors.items():
         acl = "BANKNIFTY" if sec == "BANKNIFTY" else "NIFTY"
-        total, avg_ps, conf = sector_scores_for_window(syms, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t, end_t, acl)
-        trend = "Bullish" if total > 0.25 else ("Bearish" if total < -0.25 else "Neutral")
+        total, avg_ps, conf = sector_scores_for_window(syms, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t, end_t, acl, kp_premium=kp_premium, rules=rules)
+        trend = "Bullish" if total > net_threshold else ("Bearish" if total < -net_threshold else "Neutral")
         rows.append({"Sector": sec, "NetScore": round(total,2), "Avg/Stock": round(avg_ps,2), "Confidence": round(conf,2), "Trend": trend})
     df = pd.DataFrame(rows).sort_values(["NetScore","Avg/Stock","Confidence"], ascending=[False,False,False]).reset_index(drop=True)
     return df
+
+
+def make_rules_with_aspects(default_rules, trine, sextile, conj, opp, square):
+    r = {k: (v.copy() if isinstance(v, dict) else v) for k, v in default_rules.items()}
+    # Deep copy nested dicts we rely on
+    r['weights'] = default_rules['weights'].copy()
+    r['aspect_multipliers'] = default_rules['aspect_multipliers'].copy()
+    r['asset_bias'] = {k:v.copy() for k,v in default_rules['asset_bias'].items()}
+    r['kp_weights'] = {k:v.copy() for k,v in default_rules['kp_weights'].items()}
+    r['thresholds'] = default_rules['thresholds'].copy()
+    r['aspect_multipliers'].update({
+        'Trine': trine,
+        'Sextile': sextile,
+        'Conjunction': conj,
+        'Opposition': opp,
+        'Square': square
+    })
+    return r
 
 # ---------------- UI ----------------
 st.set_page_config(page_title="Vedic Sidereal — KP Strict + Sector Ranking", layout="wide")
@@ -432,6 +450,21 @@ with colC:
 
 ay_mode = swe.SIDM_KRISHNAMURTI if strict_kp else swe.SIDM_LAHIRI
 swe.set_sid_mode(ay_mode, 0, 0)
+
+
+with st.expander("⚖️ Weights — Aspect multipliers", expanded=False):
+    col_w1, col_w2, col_w3 = st.columns(3)
+    with col_w1:
+        trine_w = st.slider("Trine", -2.0, 2.0, float(DEFAULT_RULES["aspect_multipliers"]["Trine"]), 0.1)
+        sext_w  = st.slider("Sextile", -2.0, 2.0, float(DEFAULT_RULES["aspect_multipliers"]["Sextile"]), 0.1)
+    with col_w2:
+        conj_w  = st.slider("Conjunction", -2.0, 2.0, float(DEFAULT_RULES["aspect_multipliers"]["Conjunction"]), 0.1)
+        opp_w   = st.slider("Opposition", -2.0, 2.0, float(DEFAULT_RULES["aspect_multipliers"]["Opposition"]), 0.1)
+    with col_w3:
+        square_w= st.slider("Square", -2.0, 2.0, float(DEFAULT_RULES["aspect_multipliers"]["Square"]), 0.1)
+
+rules_current = make_rules_with_aspects(DEFAULT_RULES, trine_w, sext_w, conj_w, opp_w, square_w)
+
 
 with st.spinner("Computing base timelines..."):
     asp_timeline_df = planetary_aspect_timeline(date_in, tzname=tz_in, ay_mode=ay_mode, step_minutes=20)
@@ -466,17 +499,32 @@ with tabs[0]:
         sectors = DEFAULT_SECTORS
         st.warning("Sector mapping parse failed; using defaults.")
 
-    s1, s2 = st.columns(2)
-    with s1:
-        start_t2 = st.time_input("Start Time", value=dtime(9,15), key="start_time_sector")
-    with s2:
-        end_t2 = st.time_input("End Time", value=dtime(15,30), key="end_time_sector")
+    
+s1, s2, s3 = st.columns([1,1,1])
+with s1:
+    start_t2 = st.time_input("Start Time", value=dtime(9,15), key="start_time_sector")
+with s2:
+    end_t2 = st.time_input("End Time", value=dtime(15,30), key="end_time_sector")
+with s3:
+    kp_premium = st.slider("KP weight", min_value=0.5, max_value=2.0, value=1.2, step=0.1, help="Extra weight for Moon KP events")
+net_threshold = st.slider("NetScore threshold (bull/bear)", min_value=0.0, max_value=2.0, value=0.25, step=0.05)
 
-    rank_df = build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t2, end_t2)
+rank_df = build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t2, end_t2, kp_premium=kp_premium, net_threshold=net_threshold, rules=rules_current)
+
     st.markdown("**All sectors ranking (by NetScore)**")
     st.dataframe(style_sector_table(rank_df, current_sector=sector), use_container_width=True)
-    if not rank_df.empty:
-        st.metric("Top Bullish Sector", f"{rank_df.iloc[0]['Sector']} (Net {int(rank_df.iloc[0]['Net'])})")
+    
+if not rank_df.empty:
+    c_bull, c_bear = st.columns(2)
+    with c_bull:
+        top_bullish = rank_df.iloc[0]
+        st.metric("Top Bullish Sector", f"{top_bullish['Sector']} (NetScore {int(top_bullish['NetScore'])})")
+    with c_bear:
+        worst = rank_df.sort_values("NetScore", ascending=True).iloc[0]
+        st.metric("Top Bearish Sector", f"{worst['Sector']} (NetScore {int(worst['NetScore'])})")
+else:
+    st.metric("Top Bullish Sector", "No data")
+    st.metric("Top Bearish Sector", "No data")
 
     symbols = sectors.get(sector, [])
     symbol_sec = st.selectbox("Symbol", symbols, index=0 if symbols else None, disabled=(len(symbols)==0), key="sector_symbol")
@@ -486,14 +534,14 @@ with tabs[0]:
     end_local2 = tz.localize(datetime.combine(date_in, end_t2))
     if end_local2 <= start_local2: end_local2 = end_local2 + timedelta(days=1)
 
-    def score_event_local(dfA, dfK, asset_class, sym):
-        scoresA = [score_event(r, asset_class, DEFAULT_RULES) for _, r in dfA.iterrows()]
+    def score_event_local(dfA, dfK, asset_class, sym, rules):
+        scoresA = [score_event(r, asset_class, rules) for _, r in dfA.iterrows()]
         dfA["Score"] = scoresA
-        dfA["Signal"] = [classify_score(s, DEFAULT_RULES) for s in scoresA]
+        dfA["Signal"] = [classify_score(s, rules_current) for s in scoresA]
         dfA["Symbol"] = sym
         if not dfK.empty:
-            dfK["Score"] = [score_kp_only(r, asset_class, DEFAULT_RULES) for _, r in dfK.iterrows()]
-            dfK["Signal"] = [classify_score(s, DEFAULT_RULES) for s in dfK["Score"]]
+            dfK["Score"] = [score_kp_only(r, asset_class, rules or DEFAULT_RULES) for _, r in dfK.iterrows()]
+            dfK["Signal"] = [classify_score(s, rules_current) for s in dfK["Score"]]
             dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
             dfK_view = dfK.rename(columns={"Star Lord":"Moon Star Lord@Exact","Sub Lord":"Moon Sub-Lord@Exact","Nakshatra":"Moon Nakshatra@Exact"})
             dfK_view["Aspect"] = "KP (Moon Star/Sub change)"
@@ -517,7 +565,7 @@ with tabs[0]:
         rows = []
         acl = "BANKNIFTY" if sector == "BANKNIFTY" else "NIFTY"
         for sym in symbols:
-            combined = score_event_local(dfA.copy(), dfK.copy(), acl, sym)
+            combined = score_event_local(dfA.copy(), dfK.copy(), acl, sym, rules_current)
             rows.append({"Symbol": sym, "Bullish": int((combined['Signal']=='Bullish').sum()),
                          "Bearish": int((combined['Signal']=='Bearish').sum()),
                          "Neutral": int((combined['Signal']=='Neutral').sum())})
@@ -525,7 +573,7 @@ with tabs[0]:
         st.markdown("**Sector overview (counts in selected time window):**")
         st.dataframe(overview, use_container_width=True)
         st.markdown("**Detailed signals for selected symbol:**")
-        detail = score_event_local(dfA.copy(), dfK.copy(), acl, symbol_sec).sort_values("Time")
+        detail = score_event_local(dfA.copy(), dfK.copy(), acl, symbol_sec, rules_current).sort_values("Time")
         st.dataframe(style_signal_table(detail), use_container_width=True)
     else:
         st.info("No symbols configured for this sector.")
@@ -553,16 +601,16 @@ with tabs[1]:
     dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
     dfK = dfK[(dfK["DT"] >= start_local) & (dfK["DT"] < end_local)].copy()
 
-    scoresA = [score_event(r, asset_class, DEFAULT_RULES) for _, r in dfA.iterrows()]
+    scoresA = [score_event(r, asset_class, rules) for _, r in dfA.iterrows()]
     dfA["Score"] = scoresA
-    dfA["Signal"] = [classify_score(s, DEFAULT_RULES) for s in scoresA]
+    dfA["Signal"] = [classify_score(s, rules_current) for s in scoresA]
     dfA["Symbol"] = symbol.upper()
     view_colsA = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B","Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
     dfA_view = dfA[view_colsA]
 
     if not dfK.empty:
-        dfK["Score"] = [score_kp_only(r, asset_class, DEFAULT_RULES) for _, r in dfK.iterrows()]
-        dfK["Signal"] = [classify_score(s, DEFAULT_RULES) for s in dfK["Score"]]
+        dfK["Score"] = [score_kp_only(r, asset_class, rules or DEFAULT_RULES) for _, r in dfK.iterrows()]
+        dfK["Signal"] = [classify_score(s, rules_current) for s in dfK["Score"]]
         dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
         dfK_view = dfK.rename(columns={"Star Lord":"Moon Star Lord@Exact","Sub Lord":"Moon Sub-Lord@Exact","Nakshatra":"Moon Nakshatra@Exact"})
         dfK_view["Aspect"] = "KP (Moon Star/Sub change)"
