@@ -1037,6 +1037,7 @@ render_cards(cards, "Upcoming planetary movements affecting sectors:")
         st.info("No symbols configured for this sector.")
 
 # -------- Monthly Outlook --------
+
 with tabs[5]:
     st.subheader("🗓️ Monthly Outlook — sector bias by date")
     m1, m2, m3 = st.columns([1,1,1])
@@ -1047,6 +1048,7 @@ with tabs[5]:
     with m3:
         month_anchor = st.date_input("Month of", value=date_in, key="month_anchor")
 
+    # Build day list for the selected month
     first_day = pd.Timestamp(month_anchor).replace(day=1)
     next_month = (first_day + pd.offsets.MonthEnd(0)) + pd.Timedelta(days=1)
     last_day = (pd.Timestamp(next_month) - pd.Timedelta(days=1)).date()
@@ -1056,6 +1058,7 @@ with tabs[5]:
         month_days.append(day)
         day = (pd.Timestamp(day) + pd.Timedelta(days=1)).date()
 
+    # Sector defs
     DEFAULT_SECTORS = {
         "NIFTY50": ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","BHARTIARTL","ITC","HINDUNILVR","LT","SBIN"],
         "BANKNIFTY": ["HDFCBANK","ICICIBANK","KOTAKBANK","AXISBANK","SBIN","PNB","BANDHANBNK","FEDERALBNK"],
@@ -1077,6 +1080,7 @@ with tabs[5]:
             sectors_m = DEFAULT_SECTORS
             st.warning("Sector mapping parse failed; using defaults.")
 
+    # Rank each date
     rows = []
     with st.spinner("Computing monthly sector ranks..."):
         for d in month_days:
@@ -1086,75 +1090,79 @@ with tabs[5]:
             if rdf.empty:
                 rows.append({"Date": str(d), "Top Bullish": "-", "NetScore": 0, "Top Bearish": "-", "BearScore": 0})
             else:
-                top_bull = rdf.iloc[0]; bot_bear = rdf.sort_values("NetScore", ascending=True).iloc[0]
+                top_bull = rdf.iloc[0]
+                bot_bear = rdf.sort_values("NetScore", ascending=True).iloc[0]
                 rows.append({"Date": str(d), "Top Bullish": top_bull["Sector"], "NetScore": top_bull["NetScore"],
                              "Top Bearish": bot_bear["Sector"], "BearScore": bot_bear["NetScore"]})
     month_df = pd.DataFrame(rows)
     st.dataframe(month_df, use_container_width=True)
 
-    
-with st.expander("🔭 This Month — Major Transits", expanded=False):
-    st.markdown("**Upcoming planetary movements affecting sectors:**")
-    col_f1, col_f2, col_f3 = st.columns([2,2,1])
-    with col_f1:
-        planets_pick_m = st.multiselect("Planets", ['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'],
-                                        default=['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'],
-                                        key="monthly_planets_filter")
-    with col_f2:
-        aspects_pick_m = st.multiselect("Aspects", ['Conjunction','Opposition','Square','Trine','Sextile'],
-                                        default=['Conjunction','Opposition','Square','Trine','Sextile'],
-                                        key="monthly_aspects_filter")
-    with col_f3:
-        per_day_m = st.slider("Max/day", 1, 5, 3, key="monthly_cards_per_day")
+    # Calendar heatmap (pandas Styler)
+    disp_df, styled = build_calendar_table(month_days, month_df[['Date','NetScore']])
+    st.dataframe(styled, use_container_width=True)
 
-    cards = build_transit_cards_for_range(month_days[0], len(month_days), tz_in, ay_mode, strict_kp,
-                                          sectors_m, m_start_t, m_end_t, get_rules(),
-                                          st.session_state.kp_premium, st.session_state.net_threshold,
-                                          planets_filter=planets_pick_m, aspects_filter=aspects_pick_m, per_day_limit=per_day_m)
-    render_cards(cards, "Upcoming planetary movements affecting sectors:")
+    # Major transits cards + selectors
+    with st.expander("🔭 This Month — Major Transits", expanded=False):
+        st.markdown("**Upcoming planetary movements affecting sectors:**")
+        col_f1, col_f2, col_f3 = st.columns([2,2,1])
+        with col_f1:
+            planets_pick_m = st.multiselect("Planets", ['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'],
+                                            default=['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'],
+                                            key="monthly_planets_filter")
+        with col_f2:
+            aspects_pick_m = st.multiselect("Aspects", ['Conjunction','Opposition','Square','Trine','Sextile'],
+                                            default=['Conjunction','Opposition','Square','Trine','Sextile'],
+                                            key="monthly_aspects_filter")
+        with col_f3:
+            per_day_m = st.slider("Max/day", 1, 5, 3, key="monthly_cards_per_day")
 
-    if cards:
-        options_m = [f"{c['date']} — {c['event']}" for c in cards]
-        pick_m = st.selectbox("Select a transit", options_m, key="monthly_transit_pick")
-        sel_m = cards[options_m.index(pick_m)]
-        # Determine duration from aspect + bodies
-        parts = sel_m['event'].split()
-        asp_type = parts[1].capitalize() if len(parts) > 1 else "Conjunction"
-        A = parts[0].capitalize() if parts else "Moon"
-        B = parts[-1].capitalize() if parts else "Saturn"
-        days_m = _duration_days_for_bodies(asp_type, A, B)
-        st.caption(f"Window: {sel_m['date']} for ~{max(1, days_m-1)}–{days_m+1} days")
+        cards = build_transit_cards_for_range(month_days[0], len(month_days), tz_in, ay_mode, strict_kp,
+                                              sectors_m, m_start_t, m_end_t, get_rules(),
+                                              st.session_state.kp_premium, st.session_state.net_threshold,
+                                              planets_filter=planets_pick_m, aspects_filter=aspects_pick_m,
+                                              per_day_limit=per_day_m)
+        render_cards(cards, "Upcoming planetary movements affecting sectors:")
 
-        # Sector ranking aggregated across the transit window
-        rank_win_m, meta_m = analyze_transit_window(sel_m['date'], days_m, sectors_m, tz_in, m_start_t, m_end_t,
-                                                    get_rules(), st.session_state.kp_premium, st.session_state.net_threshold,
-                                                    ay_mode, strict_kp)
-        if not rank_win_m.empty:
-            st.markdown("**Sector ranking during transit window**")
-            st.dataframe(rank_win_m[['Sector','TotalNet','Avg/Stock','Confidence']], use_container_width=True)
+        if cards:
+            options_m = [f"{c['date']} — {c['event']}" for c in cards]
+            pick_m = st.selectbox("Select a transit", options_m, key="monthly_transit_pick")
+            sel_m = cards[options_m.index(pick_m)]
+            parts = sel_m['event'].split()
+            asp_type = parts[1].capitalize() if len(parts) > 1 else "Conjunction"
+            A = parts[0].capitalize() if parts else "Moon"
+            B = parts[-1].capitalize() if parts else "Saturn"
+            days_m = _duration_days_for_bodies(asp_type, A, B)
+            st.caption(f"Window: {sel_m['date']} for ~{max(1, days_m-1)}–{days_m+1} days")
+            rank_win_m, meta_m = analyze_transit_window(sel_m['date'], days_m, sectors_m, tz_in, m_start_t, m_end_t,
+                                                        get_rules(), st.session_state.kp_premium, st.session_state.net_threshold,
+                                                        ay_mode, strict_kp)
+            if not rank_win_m.empty:
+                st.markdown("**Sector ranking during transit window**")
+                st.dataframe(rank_win_m[['Sector','TotalNet','Avg/Stock','Confidence']], use_container_width=True)
+                sec_choice_m = st.selectbox("Sector for stock breakdown", rank_win_m['Sector'].tolist(),
+                                            key="monthly_transit_sector_choice")
+                stock_df_m = stock_breakdown_for_sector_over_window(sec_choice_m, sectors_m, sel_m['date'], days_m,
+                                                                    tz_in, m_start_t, m_end_t, get_rules(),
+                                                                    st.session_state.kp_premium, ay_mode, strict_kp)
+                st.markdown(f"**Stocks in {sec_choice_m} over transit window**")
+                st.dataframe(stock_df_m, use_container_width=True)
+            else:
+                st.info("No data for this window.")
 
-            sec_choice_m = st.selectbox("Sector for stock breakdown", rank_win_m['Sector'].tolist(),
-                                        key="monthly_transit_sector_choice")
-            stock_df_m = stock_breakdown_for_sector_over_window(sec_choice_m, sectors_m, sel_m['date'], days_m,
-                                                                tz_in, m_start_t, m_end_t, get_rules(),
-                                                                st.session_state.kp_premium, ay_mode, strict_kp)
-            st.markdown(f"**Stocks in {sec_choice_m} over transit window**")
-            st.dataframe(stock_df_m, use_container_width=True)
-        else:
-            st.info("No data for this window.")
-c1, c2 = st.columns(2)
-
+    # Manual date/sector drilldown
+    c1, c2 = st.columns(2)
     with c1:
-        day_pick_m = st.selectbox("Pick a date", [str(d) for d in month_days], key="monthly_day_pick")
+        day_pick_m = st.selectbox("Pick a date", [str(d) for d in month_days], key="monthly_day_pick_alt")
     with c2:
-        sector_pick_m = st.selectbox("Pick a sector", list(sectors_m.keys()), key="monthly_sector_pick")
+        sector_pick_m = st.selectbox("Pick a sector", list(sectors_m.keys()), key="monthly_sector_pick_alt")
 
     dsel = pd.to_datetime(day_pick_m).date()
     asp_sel, kp_sel = cached_streams_for_date(dsel, tz_in, ay_mode, strict_kp)
     tz = pytz.timezone(tz_in)
     start_local = tz.localize(datetime.combine(dsel, m_start_t))
     end_local = tz.localize(datetime.combine(dsel, m_end_t))
-    if end_local <= start_local: end_local = end_local + pd.Timedelta(days=1)
+    if end_local <= start_local:
+        end_local = end_local + pd.Timedelta(days=1)
 
     dfA = asp_sel.copy()
     dfA["TimeLocal"] = pd.to_datetime(dfA["Time"], format="%Y-%m-%d %H:%M").apply(lambda x: tz.localize(x))
