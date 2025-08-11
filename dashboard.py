@@ -99,6 +99,10 @@ def to_utc(dt_local, tzname):
     tz = pytz.timezone(tzname)
     return tz.localize(dt_local).astimezone(pytz.utc)
 
+def to_local(dt_utc, tzname):
+    tz = pytz.timezone(tzname)
+    return dt_utc.astimezone(tz)
+
 def julday_from_dt(dt_utc):
     return swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute/60 + dt_utc.second/3600)
 
@@ -270,27 +274,21 @@ def intraday_kp_table(date_local, tzname="Asia/Kolkata", ay_mode=swe.SIDM_KRISHN
             cur = nxt
     return pd.DataFrame(rows).sort_values(["Date","Time","Planet"])
 
+# --- scoring, styling, sector funcs remain identical to prior build ---
 DEFAULT_RULES = {
-    "weights": {
-        "benefics": {"Jupiter": 2.0, "Venus": 1.5, "Moon": 1.0, "Mercury": 0.8},
-        "malefics": {"Saturn": -2.0, "Mars": -1.5, "Rahu": -1.5, "Ketu": -1.2},
-        "sun": 0.5
-    },
+    "weights": {"benefics": {"Jupiter": 2.0, "Venus": 1.5, "Moon": 1.0, "Mercury": 0.8},
+                "malefics": {"Saturn": -2.0, "Mars": -1.5, "Rahu": -1.5, "Ketu": -1.2}, "sun": 0.5},
     "aspect_multipliers": {"Trine": 1.0, "Sextile": 0.8, "Conjunction": 0.6, "Opposition": -0.9, "Square": -1.0},
-    "asset_bias": {
-        "NIFTY": {"Jupiter": +0.5, "Saturn": -0.3, "Mercury": +0.2},
-        "BANKNIFTY": {"Jupiter": +0.6, "Saturn": -0.5, "Mercury": +0.3},
-        "GOLD": {"Saturn": -0.6, "Jupiter": +0.4, "Venus": +0.2, "Rahu": +0.3},
-        "CRUDE": {"Mars": +0.6, "Saturn": -0.2, "Jupiter": +0.2},
-        "BTC": {"Rahu": +0.6, "Saturn": -0.4, "Jupiter": +0.2},
-        "DOW": {"Jupiter": +0.4, "Saturn": -0.3, "Mercury": +0.2}
-    },
-    "kp_weights": {
-        "star": {"Jupiter": +0.6, "Venus": +0.4, "Mercury": +0.2, "Moon": +0.2, "Sun": +0.1,
-            "Saturn": -0.6, "Mars": -0.4, "Rahu": -0.5, "Ketu": -0.4},
-        "sub":  {"Jupiter": +0.8, "Venus": +0.5, "Mercury": +0.3, "Moon": +0.3, "Sun": +0.1,
-            "Saturn": -0.8, "Mars": -0.6, "Rahu": -0.6, "Ketu": -0.5}
-    },
+    "asset_bias": {"NIFTY": {"Jupiter": +0.5, "Saturn": -0.3, "Mercury": +0.2},
+                   "BANKNIFTY": {"Jupiter": +0.6, "Saturn": -0.5, "Mercury": +0.3},
+                   "GOLD": {"Saturn": -0.6, "Jupiter": +0.4, "Venus": +0.2, "Rahu": +0.3},
+                   "CRUDE": {"Mars": +0.6, "Saturn": -0.2, "Jupiter": +0.2},
+                   "BTC": {"Rahu": +0.6, "Saturn": -0.4, "Jupiter": +0.2},
+                   "DOW": {"Jupiter": +0.4, "Saturn": -0.3, "Mercury": +0.2}},
+    "kp_weights": {"star": {"Jupiter": +0.6, "Venus": +0.4, "Mercury": +0.2, "Moon": +0.2, "Sun": +0.1,
+                            "Saturn": -0.6, "Mars": -0.4, "Rahu": -0.5, "Ketu": -0.4},
+                   "sub":  {"Jupiter": +0.8, "Venus": +0.5, "Mercury": +0.3, "Moon": +0.3, "Sun": +0.1,
+                            "Saturn": -0.8, "Mars": -0.6, "Rahu": -0.6, "Ketu": -0.5}},
     "thresholds": {"bullish": 1.0, "bearish": -1.0}
 }
 
@@ -331,8 +329,8 @@ def style_signal_table(df):
     if df.empty: return df
     def color_row(row):
         sig = row.get("Signal","")
-        if sig == "Bullish": return ['background-color: #cfe8ff' for _ in row]  # blue
-        if sig == "Bearish": return ['background-color: #ffd6d6' for _ in row]  # red
+        if sig == "Bullish": return ['background-color: #cfe8ff' for _ in row]
+        if sig == "Bearish": return ['background-color: #ffd6d6' for _ in row]
         return ['']*len(row)
     return df.style.apply(color_row, axis=1)
 
@@ -446,14 +444,12 @@ with tabs[0]:
     with s2:
         end_t2 = st.time_input("End Time", value=dtime(15,30), key="end_time_sector")
 
-    # --- Sector-wide ranking FIRST ---
     rank_df = build_sector_overview(sectors, asp_timeline_df, kp_moon_df, tz_in, date_in, start_t2, end_t2)
     st.markdown("**All sectors ranking (Net = Bullish - Bearish):**")
     st.dataframe(style_sector_table(rank_df, current_sector=sector), use_container_width=True)
     if not rank_df.empty:
         st.metric("Top Bullish Sector", f"{rank_df.iloc[0]['Sector']} (Net {int(rank_df.iloc[0]['Net'])})")
 
-    # --- Then focus on selected sector & symbol ---
     symbols = sectors.get(sector, [])
     symbol_sec = st.selectbox("Symbol", symbols, index=0 if symbols else None, disabled=(len(symbols)==0), key="sector_symbol")
 
@@ -462,19 +458,13 @@ with tabs[0]:
     end_local2 = tz.localize(datetime.combine(date_in, end_t2))
     if end_local2 <= start_local2: end_local2 = end_local2 + timedelta(days=1)
 
-    def signals_for(sym, acl):
-        dfA = asp_timeline_df.copy()
-        dfA["TimeLocal"] = pd.to_datetime(dfA["Time"], format="%Y-%m-%d %H:%M").apply(lambda x: tz.localize(x))
-        dfA = dfA[(dfA["TimeLocal"] >= start_local2) & (dfA["TimeLocal"] < end_local2)].copy()
-        dfK = kp_moon_df.copy()
-        dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
-        dfK = dfK[(dfK["DT"] >= start_local2) & (dfK["DT"] < end_local2)].copy()
-        scoresA = [score_event(r, acl, DEFAULT_RULES) for _, r in dfA.iterrows()]
+    def score_event_local(dfA, dfK, asset_class, sym):
+        scoresA = [score_event(r, asset_class, DEFAULT_RULES) for _, r in dfA.iterrows()]
         dfA["Score"] = scoresA
         dfA["Signal"] = [classify_score(s, DEFAULT_RULES) for s in scoresA]
         dfA["Symbol"] = sym
         if not dfK.empty:
-            dfK["Score"] = [score_kp_only(r, acl, DEFAULT_RULES) for _, r in dfK.iterrows()]
+            dfK["Score"] = [score_kp_only(r, asset_class, DEFAULT_RULES) for _, r in dfK.iterrows()]
             dfK["Signal"] = [classify_score(s, DEFAULT_RULES) for s in dfK["Score"]]
             dfK["Time"] = dfK["DT"].dt.strftime("%Y-%m-%d %H:%M")
             dfK_view = dfK.rename(columns={"Star Lord":"Moon Star Lord@Exact","Sub Lord":"Moon Sub-Lord@Exact","Nakshatra":"Moon Nakshatra@Exact"})
@@ -483,27 +473,31 @@ with tabs[0]:
             dfK_view["Planet A"] = "Moon"; dfK_view["Planet B"] = "-"
             dfK_view["Symbol"] = sym
             view_colsA = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B","Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
-            combined = pd.concat([dfA[view_colsA], dfK_view[view_colsA]], ignore_index=True)
+            return pd.concat([dfA[view_colsA], dfK_view[view_colsA]], ignore_index=True)
         else:
             view_colsA = ["Time","Symbol","Signal","Score","Aspect","Exact°","Planet A","Planet B","Moon Nakshatra@Exact","Moon Star Lord@Exact","Moon Sub-Lord@Exact"]
-            combined = dfA[view_colsA]
-        combined = combined.sort_values("Time")
-        bull = int((combined["Signal"]=="Bullish").sum())
-        bear = int((combined["Signal"]=="Bearish").sum())
-        neu  = int((combined["Signal"]=="Neutral").sum())
-        return combined, bull, bear, neu
+            return dfA[view_colsA]
+
+    dfA = asp_timeline_df.copy()
+    dfA["TimeLocal"] = pd.to_datetime(dfA["Time"], format="%Y-%m-%d %H:%M").apply(lambda x: tz.localize(x))
+    dfA = dfA[(dfA["TimeLocal"] >= start_local2) & (dfA["TimeLocal"] < end_local2)].copy()
+    dfK = kp_moon_df.copy()
+    dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
+    dfK = dfK[(dfK["DT"] >= start_local2) & (dfK["DT"] < end_local2)].copy()
 
     if symbols:
         rows = []
         acl = "BANKNIFTY" if sector == "BANKNIFTY" else "NIFTY"
         for sym in symbols:
-            _, b, s, n = signals_for(sym, acl)
-            rows.append({"Symbol": sym, "Bullish": b, "Bearish": s, "Neutral": n})
+            combined = score_event_local(dfA.copy(), dfK.copy(), acl, sym)
+            rows.append({"Symbol": sym, "Bullish": int((combined['Signal']=='Bullish').sum()),
+                         "Bearish": int((combined['Signal']=='Bearish').sum()),
+                         "Neutral": int((combined['Signal']=='Neutral').sum())})
         overview = pd.DataFrame(rows).sort_values(["Bullish","Bearish"], ascending=[False,True])
         st.markdown("**Sector overview (counts in selected time window):**")
         st.dataframe(overview, use_container_width=True)
         st.markdown("**Detailed signals for selected symbol:**")
-        detail, bcnt, scnt, ncnt = signals_for(symbol_sec, acl)
+        detail = score_event_local(dfA.copy(), dfK.copy(), acl, symbol_sec).sort_values("Time")
         st.dataframe(style_signal_table(detail), use_container_width=True)
     else:
         st.info("No symbols configured for this sector.")
@@ -527,7 +521,6 @@ with tabs[1]:
     end_local = tz.localize(datetime.combine(date_in, end_t))
     if end_local <= start_local: end_local = end_local + timedelta(days=1)
     dfA = dfA[(dfA["TimeLocal"] >= start_local) & (dfA["TimeLocal"] < end_local)].copy()
-
     dfK = kp_moon_df.copy()
     dfK["DT"] = pd.to_datetime(dfK["Date"] + " " + dfK["Time"]).apply(lambda x: tz.localize(x))
     dfK = dfK[(dfK["DT"] >= start_local) & (dfK["DT"] < end_local)].copy()
