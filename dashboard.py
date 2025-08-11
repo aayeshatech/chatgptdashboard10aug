@@ -1227,7 +1227,7 @@ def main():
         st.info("This may be due to data loading issues or configuration problems.")
     
     # Create tabs for detailed analysis
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tabs = st.tabs([
         "📊 Sector Analysis", 
         "📈 Performance Charts", 
         "🔍 Detailed Events",
@@ -1236,6 +1236,8 @@ def main():
         "🗓️ Monthly Outlook", 
         "⚙️ Advanced Settings"
     ])
+    
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
     
     with tab1:
         st.markdown("## 🏭 Comprehensive Sector Analysis")
@@ -1742,109 +1744,100 @@ def main():
         
         # Current settings summary
         st.markdown("### 🎛️ Current Analysis Settings")
-        config_summary = pd.DataFrame([
-            {'Parameter': 'Analysis Date', 'Value': str(user_config['date'])},
-            {'Parameter': 'Timezone', 'Value': user_config['timezone']},
-            {'Parameter': 'Market Hours', 'Value': f"{user_config['start_time']} - {user_config['end_time']}"},
-            {'Parameter': 'KP Premium', 'Value': f"{user_config['kp_premium']:.1f}"},
-            {'Parameter': 'Signal Threshold', 'Value': f"{user_config['signal_threshold']:.1f}"},
-            {'Parameter': 'Confidence Filter', 'Value': f"{user_config['confidence_filter']:.1%}"}
-        ])
-        st.dataframe(config_summary, use_container_width=True)
-        
-        # Aspect weights configuration
-        st.markdown("### ⚖️ Current Aspect Weights")
-        aspect_summary = pd.DataFrame([
-            {'Aspect': aspect, 'Weight': f"{weight:.1f}"}
-            for aspect, weight in user_config['aspect_weights'].items()
-        ])
-        st.dataframe(aspect_summary, use_container_width=True)
-        
-        # Export functionality
-        st.markdown("### 📥 Export Analysis Results")
-        
-        # Prepare export data
-        if sector_analyses:
-            current_sector_df = pd.DataFrame([
-                {
-                    'Sector': s.sector,
-                    'Net Score': s.net_score,
-                    'Trend': s.trend,
-                    'Signal Strength': s.signal_strength,
-                    'Confidence': s.confidence,
-                    'Risk Level': s.risk_level,
-                    'Top Stocks': ', '.join(s.top_stocks)
-                }
-                for s in sector_analyses
+        try:
+            config_summary = pd.DataFrame([
+                {'Parameter': 'Analysis Date', 'Value': str(user_config['date'])},
+                {'Parameter': 'Timezone', 'Value': user_config['timezone']},
+                {'Parameter': 'Market Hours', 'Value': f"{user_config['start_time']} - {user_config['end_time']}"},
+                {'Parameter': 'KP Premium', 'Value': f"{user_config['kp_premium']:.1f}"},
+                {'Parameter': 'Signal Threshold', 'Value': f"{user_config['signal_threshold']:.1f}"},
+                {'Parameter': 'Confidence Filter', 'Value': f"{user_config['confidence_filter']:.1%}"}
             ])
-        else:
-            current_sector_df = pd.DataFrame()
-        
-        export_data = {
-            'sector_rankings': current_sector_df,
-            'aspect_events': aspect_df,
-            'kp_events': kp_df
-        }
-        create_export_functionality(export_data, user_config)
-        
-        # Performance metrics
-        st.markdown("### 📊 Performance Metrics")
-        if sector_analyses:
-            perf_col1, perf_col2, perf_col3 = st.columns(3)
+            st.dataframe(config_summary, use_container_width=True)
             
-            with perf_col1:
-                total_sectors = len(sector_analyses)
+            # Aspect weights configuration
+            st.markdown("### ⚖️ Current Aspect Weights")
+            aspect_summary = pd.DataFrame([
+                {'Aspect': aspect, 'Weight': f"{weight:.1f}"}
+                for aspect, weight in user_config['aspect_weights'].items()
+            ])
+            st.dataframe(aspect_summary, use_container_width=True)
+            
+            # Export functionality
+            st.markdown("### 📥 Export Analysis Results")
+            
+            # Prepare export data
+            if sector_analyses:
+                current_sector_df = pd.DataFrame([
+                    {
+                        'Sector': s.sector,
+                        'Net Score': s.net_score,
+                        'Trend': s.trend,
+                        'Signal Strength': s.signal_strength,
+                        'Confidence': s.confidence,
+                        'Risk Level': s.risk_level,
+                        'Top Stocks': ', '.join(s.top_stocks)
+                    }
+                    for s in sector_analyses
+                ])
+            else:
+                current_sector_df = pd.DataFrame()
+            
+            export_data = {
+                'sector_rankings': current_sector_df,
+                'aspect_events': aspect_df,
+                'kp_events': kp_df
+            }
+            create_export_functionality(export_data, user_config)
+            
+            # Performance metrics
+            st.markdown("### 📊 Performance Metrics")
+            if sector_analyses:
+                perf_col1, perf_col2, perf_col3 = st.columns(3)
+                
+                perf_col1.metric("Sectors Analyzed", len(sector_analyses))
                 bullish_count = len([s for s in sector_analyses if s.net_score > 0])
-                st.metric("Sectors Analyzed", total_sectors)
-                st.metric("Bullish Sectors", f"{bullish_count}/{total_sectors}")
-            
-            with perf_col2:
+                perf_col1.metric("Bullish Sectors", f"{bullish_count}/{len(sector_analyses)}")
+                
                 avg_confidence = sum(s.confidence for s in sector_analyses) / len(sector_analyses)
+                perf_col2.metric("Average Confidence", f"{avg_confidence:.1%}")
                 high_conf_count = len([s for s in sector_analyses if s.confidence > 0.8])
-                st.metric("Average Confidence", f"{avg_confidence:.1%}")
-                st.metric("High Confidence", f"{high_conf_count}/{total_sectors}")
-            
-            with perf_col3:
+                perf_col2.metric("High Confidence", f"{high_conf_count}/{len(sector_analyses)}")
+                
                 strong_signals = len([s for s in sector_analyses if abs(s.net_score) > 2.0])
                 moderate_signals = len([s for s in sector_analyses if 1.0 <= abs(s.net_score) <= 2.0])
-                st.metric("Strong Signals", strong_signals)
-                st.metric("Moderate Signals", moderate_signals)
-        
-        # System information
-        with st.expander("ℹ️ System Information", expanded=False):
-            st.markdown(f"""
+                perf_col3.metric("Strong Signals", strong_signals)
+                perf_col3.metric("Moderate Signals", moderate_signals)
+            
+            # System information
+            st.markdown("### ℹ️ System Information")
+            system_status = f"""
             **Swiss Ephemeris Status:** {'✅ Available' if SWISSEPH_AVAILABLE else '❌ Not Available (Demo Mode)'}  
             **Plotly Charts Status:** {'✅ Available' if PLOTLY_AVAILABLE else '❌ Not Available (Basic Charts)'}  
             **Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  
             **Version:** 2.0.0 Pro  
             **Data Sources:** Swiss Ephemeris, KP Astrology System  
+            """
+            st.markdown(system_status)
             
-            **Installation Instructions:**
-            ```bash
-            pip install pyswisseph plotly streamlit pytz pandas
-            ```
-            """)
+            # Quick installation helper
+            if not SWISSEPH_AVAILABLE or not PLOTLY_AVAILABLE:
+                st.info("💡 **Quick Setup:** To get full functionality, run:")
+                st.code("pip install pyswisseph plotly", language="bash")
             
-        # Quick installation helper
-        if not SWISSEPH_AVAILABLE or not PLOTLY_AVAILABLE:
-            st.info("💡 **Quick Setup:** To get full functionality, run the following command:")
-            st.code("pip install pyswisseph plotly", language="bash")
-        
-        # Data refresh controls
-        st.markdown("### 🔄 Data Management")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("🔄 Refresh All Data", type="secondary"):
+            # Data refresh controls
+            st.markdown("### 🔄 Data Management")
+            col1, col2 = st.columns(2)
+            
+            if col1.button("🔄 Refresh All Data", type="secondary"):
                 st.cache_data.clear()
                 st.success("Cache cleared! Refresh the page to reload data.")
-        
-        with col2:
-            if st.button("📊 Recalculate Scores", type="secondary"):
+            
+            if col2.button("📊 Recalculate Scores", type="secondary"):
                 st.success("Scores will be recalculated on next data load.")
-        
-        # Debug information
-        with st.expander("🔧 Debug Information", expanded=False):
+            
+            # Debug information
+            st.markdown("### 🔧 Debug Information")
             debug_info = {
                 'Sectors Loaded': len(config.SECTORS.get('SECTORS', {})) + len(config.SECTORS.get('INDICES', {})),
                 'Aspect Events': len(aspect_df) if not aspect_df.empty else 0,
@@ -1855,6 +1848,10 @@ def main():
             }
             
             st.json(debug_info)
+            
+        except Exception as e:
+            st.error(f"Settings tab error: {str(e)}")
+            st.info("Basic configuration display:")
 
 if __name__ == "__main__":
     main()
