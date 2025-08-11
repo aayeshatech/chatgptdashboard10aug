@@ -5,42 +5,42 @@ import streamlit as st
 st.set_page_config(page_title="Astro‑Based Market Dashboard", layout="wide")
 st.title("Astro‑Based Market Dashboard")
 
-# ---------- File Upload Section ----------
-
-# Upload ephemeris CSV
+# ---------- Upload files ----------
+# Ephemeris CSV
 ephemeris_file = st.file_uploader(
     "Upload the sidereal ephemeris CSV (vedic_sidereal_ephemeris_mock_2024_2032.csv)",
     type=["csv"]
 )
 
-# Upload watch‑list file (comma‑separated list of symbols)
+# Watch‑list file (comma‑separated symbols)
 watchlist_file = st.file_uploader(
     "Upload your watch‑list file (comma‑separated symbols) – optional",
     type=["txt", "csv"]
 )
 
+# Ensure ephemeris is loaded before proceeding
 if ephemeris_file is not None:
-    # Load ephemeris into DataFrame
     astro_df = pd.read_csv(ephemeris_file)
     astro_df['Date'] = pd.to_datetime(astro_df['Date'])
+    # Restrict to 2024–2030 (adjust as needed)
     astro_df = astro_df[(astro_df['Date'] >= '2024-01-01') & (astro_df['Date'] <= '2030-12-31')]
-
     st.success("Ephemeris data loaded.")
 else:
+    astro_df = None
     st.warning("Please upload the ephemeris CSV to continue.")
 
-# Parse watch‑list into a list of symbols
+# Parse watch‑list file into list of symbols
 if watchlist_file is not None:
-    content = watchlist_file.read().decode('utf-8')
-    stock_list = [s.strip() for s in content.split(',') if s.strip()]
+    watch_content = watchlist_file.read().decode('utf-8')
+    stock_list = [s.strip() for s in watch_content.split(',') if s.strip()]
     st.success(f"Loaded {len(stock_list)} symbols from watch‑list.")
 else:
     stock_list = []
     st.info("No watch‑list uploaded; only planetary statuses will be shown.")
 
-# ---------- Only proceed if ephemeris is loaded ----------
-if 'astro_df' in locals():
-    # Define planet rulership and exaltation
+# Proceed only when ephemeris is loaded
+if astro_df is not None:
+    # ---------- Planetary dignities ----------
     planet_home_signs = {
         'Sun': ['Leo'],
         'Moon': ['Cancer'],
@@ -60,7 +60,7 @@ if 'astro_df' in locals():
         'Saturn': 'Libra',
     }
 
-    # Add status column: Bullish if in own sign or exalted sign, else Bearish
+    # Add bullish/bearish status to each row
     astro_df['Status'] = astro_df.apply(
         lambda row: 'Bullish'
         if (row['Rashi'] in planet_home_signs.get(row['Planet'], [])) or
@@ -129,11 +129,10 @@ if 'astro_df' in locals():
             })
         return watchlist
 
-    # Parse watch‑list into DataFrame with optional planet mapping
-    def stock_status_on_date(date_str):
+    def stock_status_on_date(date_str, stock_planet_map):
         rows = []
         for stock in stock_list:
-            planet = stock_planet_map.get(stock)  # defined below
+            planet = stock_planet_map.get(stock)
             if planet:
                 planet_info = build_watchlist([planet], date_str)[0]
                 rows.append({
@@ -155,16 +154,7 @@ if 'astro_df' in locals():
                 })
         return pd.DataFrame(rows)
 
-    # ---------- Planet mapping (user must fill this) ----------
-    # Example: assign each stock ticker to a ruling planet.
-    # Without mapping, statuses will be None for those symbols.
-    stock_planet_map = {
-        # 'NSE:TRENT1!': 'Venus',
-        # 'NSE:EICHERMOT1!': 'Mars',
-        # ...
-    }
-
-    # ---------- UI for selecting date ----------
+    # ---------- User inputs ----------
     col1, col2 = st.columns(2)
     with col1:
         selected_date = st.date_input(
@@ -175,36 +165,38 @@ if 'astro_df' in locals():
         )
 
     with col2:
-        # optional: allow user to override default mapping via text input
         mapping_text = st.text_area(
             "Optional: enter stock→planet mappings (one per line, format: symbol,planet)",
             placeholder="NSE:TRENT1!,Venus\nNSE:INFY1!,Mercury",
             height=100
         )
-        if mapping_text:
-            for line in mapping_text.strip().splitlines():
-                try:
-                    sym, pl = [part.strip() for part in line.split(',')]
-                    stock_planet_map[sym] = pl
-                except ValueError:
-                    pass  # ignore malformed lines
+
+    # Parse mapping text into a dictionary
+    stock_planet_map = {}
+    if mapping_text.strip():
+        for line in mapping_text.strip().splitlines():
+            try:
+                sym, pl = [part.strip() for part in line.split(',')]
+                stock_planet_map[sym] = pl
+            except ValueError:
+                pass  # ignore malformed lines
 
     # ---------- Generate report ----------
     if st.button("Generate Report"):
         date_str = selected_date.strftime("%Y-%m-%d")
 
-        # Planetary status report
+        # Planetary status table
         planetary_watchlist = build_watchlist(
             ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn'],
             date_str
         )
-        st.subheader("Planetary Status on " + date_str)
+        st.subheader(f"Planetary Status on {date_str}")
         st.write(pd.DataFrame(planetary_watchlist))
 
-        # Stock/commodity status report
+        # Stock/commodity status table
         if stock_list:
-            stock_df = stock_status_on_date(date_str)
-            st.subheader("Watch‑List Symbols Status on " + date_str)
+            stock_df = stock_status_on_date(date_str, stock_planet_map)
+            st.subheader(f"Watch‑List Symbols Status on {date_str}")
             st.write(stock_df)
         else:
-            st.info("No watch‑list symbols provided, so only planetary status is shown.")
+            st.info("No watch‑list uploaded; only planetary statuses are shown.")
