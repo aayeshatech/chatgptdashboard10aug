@@ -585,6 +585,7 @@ def style_sector_table(df, current_sector=None):
         return df.style.apply(color_row, axis=1)
     except Exception:
         return df
+
 class EnhancedScoringEngine:
     def __init__(self, config: AppConfig):
         self.config = config
@@ -1738,7 +1739,6 @@ def main():
                 st.markdown("**📉 Worst Day:** " + 
                           f"{worst_day['Date']} - {worst_day['Top Bearish']} (Score: {worst_day['BearScore']:.2f})")
     
-    with tab7:
     with tab7:
         st.markdown("## ⚙️ Advanced Configuration & System Status")
         
